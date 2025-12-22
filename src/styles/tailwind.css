@@ -1,0 +1,9 @@
+/* IMPORTANT:
+   @import must come BEFORE @tailwind directives in PostCSS/Vite.
+   This ensures design.css layers are processed together with Tailwind.
+*/
+@import "./design.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

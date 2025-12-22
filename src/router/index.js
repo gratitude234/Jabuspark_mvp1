@@ -1,0 +1,71 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
+
+import AuthLayout from '../layouts/AuthLayout.vue'
+import AppShell from '../layouts/AppShell.vue'
+
+import Login from '../pages/Login.vue'
+import Onboarding from '../pages/Onboarding.vue'
+import Dashboard from '../pages/Dashboard.vue'
+import PastQuestions from '../pages/PastQuestions.vue'
+import Materials from '../pages/Materials.vue'
+import Practice from '../pages/Practice.vue'
+import Profile from '../pages/Profile.vue'
+
+// ✅ Practice home (so /practice is a real page)
+import PracticeHome from '../pages/PracticeHome.vue'
+
+// ✅ NEW
+import Saved from '../pages/Saved.vue'
+
+const routes = [
+  {
+    path: '/auth',
+    component: AuthLayout,
+    children: [
+      { path: 'login', component: Login, meta: { title: 'Login' } },
+    ],
+  },
+  {
+    path: '/',
+    component: AppShell,
+    children: [
+      { path: '', redirect: '/dashboard' },
+
+      { path: 'onboarding', component: Onboarding, meta: { title: 'Onboarding' } },
+      { path: 'dashboard', component: Dashboard, meta: { title: 'Dashboard' } },
+      { path: 'past-questions', component: PastQuestions, meta: { title: 'Past Questions' } },
+      { path: 'materials', component: Materials, meta: { title: 'Materials' } },
+
+      // ✅ so nav "/practice" never 404s (until you create PracticeHome)
+      { path: 'practice', component: PracticeHome, meta: { title: 'Practice' } },
+      { path: 'practice/:bankId', component: Practice, props: true, meta: { title: 'Practice' } },
+
+      // ✅ NEW
+      { path: 'saved', component: Saved, meta: { title: 'Saved' } },
+
+      { path: 'profile', component: Profile, meta: { title: 'Profile' } },
+    ],
+  },
+  { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
+]
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+  scrollBehavior() {
+    return { top: 0 }
+  },
+})
+
+router.beforeEach((to) => {
+  const auth = useAuthStore()
+  const publicPaths = ['/auth/login']
+  const needsAuth = !publicPaths.includes(to.path)
+
+  if (needsAuth && !auth.isAuthed) return '/auth/login'
+  if (auth.isAuthed && auth.needsOnboarding && to.path !== '/onboarding') return '/onboarding'
+  return true
+})
+
+export default router
