@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import AppInput from '../components/AppInput.vue'
@@ -18,27 +18,23 @@ const showPass = ref(false)
 const busy = ref(false)
 const error = ref('')
 
-const isLogin = computed(() => mode.value === 'login')
-const heading = computed(() => (isLogin.value ? 'Welcome back' : 'Create your account'))
-const sub = computed(() =>
-  isLogin.value
-    ? 'Log in to continue your streak and saved items.'
-    : 'Sign up to start practising and saving materials.'
-)
+const title = computed(() => (mode.value === 'login' ? 'Welcome back' : 'Create your account'))
+const actionText = computed(() => (mode.value === 'login' ? 'Sign in' : 'Create account'))
 
-watch(
-  () => auth.isAuthed,
-  (ok) => {
-    if (!ok) return
-    // If profile incomplete, go onboarding; otherwise dashboard/home.
-    router.replace(auth.needsOnboarding ? '/onboarding' : '/')
-  },
-  { immediate: true }
-)
+const ids = {
+  fullName: 'fullName',
+  email: 'email',
+  password: 'password'
+}
+
+const helperText = computed(() => {
+  if (mode.value === 'login') return 'Sign in to continue your progress across all JABU study resources.'
+  return 'Create an account to save progress, bookmarks, and practice stats.'
+})
 
 function toggleMode() {
   error.value = ''
-  mode.value = isLogin.value ? 'register' : 'login'
+  mode.value = mode.value === 'login' ? 'register' : 'login'
 }
 
 async function submit() {
@@ -49,19 +45,21 @@ async function submit() {
 
   if (!e) return (error.value = 'Email is required.')
   if (!p) return (error.value = 'Password is required.')
-  if (!isLogin.value && !n) return (error.value = 'Full name is required.')
   if (p.length < 6) return (error.value = 'Password must be at least 6 characters.')
+  if (mode.value === 'register' && !n) return (error.value = 'Full name is required.')
 
   busy.value = true
   try {
-    if (isLogin.value) {
+    if (mode.value === 'login') {
       await auth.login({ email: e, password: p })
     } else {
       await auth.register({ fullName: n, email: e, password: p })
     }
-    // redirect handled by watcher
+
+    if (auth.needsOnboarding) router.push('/onboarding')
+    else router.push('/dashboard')
   } catch (err) {
-    error.value = err?.message || 'Something went wrong. Please try again.'
+    error.value = err?.message || 'Authentication failed. Please try again.'
   } finally {
     busy.value = false
   }
@@ -69,58 +67,83 @@ async function submit() {
 </script>
 
 <template>
-  <div class="page">
-    <div class="max-w-[480px] mx-auto">
-      <div class="flex items-center justify-center mb-6">
-        <LogoMark class="h-10 w-10" />
+  <div>
+    <!-- Brand header -->
+    <div class="flex flex-col items-center text-center">
+      <LogoMark variant="lockup" :size="12" alt="JabuSpark" />
+      <p class="sub mt-2">Study smarter at JABU.</p>
+    </div>
+
+    <div class="mt-6">
+      <div class="h1 text-center">{{ title }}</div>
+      <p class="sub mt-2 text-center">{{ helperText }}</p>
+    </div>
+
+    <form class="mt-6 space-y-4" @submit.prevent="submit">
+      <div v-if="mode === 'register'">
+        <label class="label" :for="ids.fullName">Full name</label>
+        <AppInput
+          :id="ids.fullName"
+          v-model="fullName"
+          placeholder="e.g. Gratitude A."
+          autocomplete="name"
+          :ariaInvalid="!!error"
+          @keyup.enter="submit"
+        />
       </div>
 
-      <div class="text-center">
-        <div class="h1">{{ heading }}</div>
-        <p class="sub mt-2">{{ sub }}</p>
+      <div>
+        <label class="label" :for="ids.email">Email</label>
+        <AppInput
+          :id="ids.email"
+          v-model="email"
+          type="email"
+          placeholder="you@school.edu"
+          autocomplete="email"
+          inputmode="email"
+          :ariaInvalid="!!error"
+          @keyup.enter="submit"
+        />
       </div>
 
-      <div class="mt-6 card card-pad">
-        <div v-if="!isLogin" class="mb-3">
-          <label class="label" for="fullname">Full name</label>
-          <AppInput id="fullname" v-model="fullName" placeholder="Your name" autocomplete="name" />
-        </div>
-
-        <div class="mb-3">
-          <label class="label" for="email">Email</label>
-          <AppInput id="email" v-model="email" placeholder="you@example.com" autocomplete="email" />
-        </div>
-
-        <div class="mb-2">
-          <label class="label" for="password">Password</label>
-          <div class="flex gap-2">
-            <AppInput
-              id="password"
-              v-model="password"
-              :type="showPass ? 'text' : 'password'"
-              placeholder="••••••••"
-              autocomplete="current-password"
-            />
-            <button type="button" class="btn btn-ghost whitespace-nowrap" @click="showPass = !showPass">
-              {{ showPass ? 'Hide' : 'Show' }}
-            </button>
-          </div>
-          <p class="help">Minimum 6 characters.</p>
-        </div>
-
-        <div v-if="error" class="alert alert-warn mt-3" role="alert">{{ error }}</div>
-
-        <div class="mt-4 flex flex-col gap-2">
-          <AppButton :disabled="busy" @click="submit">
-            <span v-if="!busy">{{ isLogin ? 'Log in' : 'Create account' }}</span>
-            <span v-else>Please wait…</span>
-          </AppButton>
-
-          <button type="button" class="btn btn-ghost" :disabled="busy" @click="toggleMode">
-            {{ isLogin ? 'New here? Create an account' : 'Already have an account? Log in' }}
+      <div>
+        <label class="label" :for="ids.password">Password</label>
+        <div class="flex gap-2">
+          <AppInput
+            :id="ids.password"
+            v-model="password"
+            class="flex-1"
+            :type="showPass ? 'text' : 'password'"
+            placeholder="••••••••"
+            :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
+            :ariaInvalid="!!error"
+            @keyup.enter="submit"
+          />
+          <button
+            class="btn btn-ghost btn-sm px-4"
+            type="button"
+            :disabled="busy"
+            @click="showPass = !showPass"
+            :aria-pressed="showPass"
+            :aria-label="showPass ? 'Hide password' : 'Show password'"
+          >
+            {{ showPass ? 'Hide' : 'Show' }}
           </button>
         </div>
+        <p class="help">Minimum 6 characters.</p>
       </div>
-    </div>
+
+      <div v-if="error" class="alert alert-danger" role="alert">{{ error }}</div>
+
+      <AppButton class="w-full" :disabled="busy" type="submit">
+        <span v-if="!busy">{{ actionText }}</span>
+        <span v-else>Working…</span>
+      </AppButton>
+
+      <button class="btn btn-ghost w-full" type="button" :disabled="busy" @click="toggleMode">
+        <span v-if="mode === 'login'">New here? Create an account</span>
+        <span v-else>Already have an account? Sign in</span>
+      </button>
+    </form>
   </div>
 </template>

@@ -11,13 +11,13 @@ const router = useRouter()
 const auth = useAuthStore()
 const catalog = useCatalogStore()
 
-const busy = ref(false)
-const error = ref('')
-
 const facultyId = ref(auth.user?.profile?.facultyId || null)
 const departmentId = ref(auth.user?.profile?.departmentId || null)
 const level = ref(auth.user?.profile?.level || 200)
 const pickedCourseIds = ref([...(auth.user?.profile?.courseIds || [])])
+
+const busy = ref(false)
+const error = ref('')
 
 const levelOptions = [
   { value: 100, label: '100 Level' },
@@ -28,8 +28,14 @@ const levelOptions = [
   { value: 600, label: '600 Level' },
 ]
 
-const facultyOptions = computed(() => (catalog.faculties || []).map(f => ({ value: f.id, label: f.name })))
-const departmentOptions = computed(() => (catalog.departments || []).map(d => ({ value: d.id, label: d.name })))
+const facultyOptions = computed(() =>
+  (catalog.faculties || []).map(f => ({ value: f.id, label: f.name }))
+)
+
+const departmentOptions = computed(() =>
+  (catalog.departments || []).map(d => ({ value: d.id, label: d.name }))
+)
+
 const courseOptions = computed(() =>
   (catalog.courses || []).map(c => ({
     id: c.id,
@@ -69,20 +75,19 @@ async function save({ skipCourses = false } = {}) {
   if (!departmentId.value) return (error.value = 'Choose a department to continue.')
   if (!level.value) return (error.value = 'Choose your level to continue.')
 
-  const existingCourseIds = auth.user?.profile?.courseIds || []
-  const courseIds = skipCourses ? existingCourseIds : pickedCourseIds.value
+  const courseIds = skipCourses ? [] : pickedCourseIds.value
 
   busy.value = true
   try {
     await auth.updateProfile({
       facultyId: facultyId.value,
       departmentId: departmentId.value,
-      level: Number(level.value) || 0,
+      level: Number(level.value),
       courseIds
     })
-    router.replace('/')
+    router.push('/dashboard')
   } catch (e) {
-    error.value = e?.message || 'Failed to save your profile.'
+    error.value = e?.message || 'Failed to save. Please try again.'
   } finally {
     busy.value = false
   }
@@ -91,11 +96,11 @@ async function save({ skipCourses = false } = {}) {
 
 <template>
   <div class="page">
-    <AppCard>
-      <div class="h1">Set up your study profile</div>
-      <p class="sub mt-1">This helps us show the right practice banks, materials, and past questions.</p>
+    <AppCard class="max-w-3xl mx-auto">
+      <div class="h1">Set up your study profile (1 minute)</div>
+      <p class="sub mt-2">This helps JabuSpark show the right materials and practice banks.</p>
 
-      <div class="mt-5 grid gap-3 sm:grid-cols-3">
+      <div class="grid gap-4 mt-6 sm:grid-cols-3">
         <div class="sm:col-span-1">
           <label class="label">Faculty</label>
           <AppSelect v-model="facultyId" :options="facultyOptions" placeholder="Select faculty…" />
@@ -121,7 +126,6 @@ async function save({ skipCourses = false } = {}) {
 
       <div class="mt-3">
         <p v-if="catalog.loading.courses" class="sub">Loading courses…</p>
-
         <div v-else-if="courseOptions.length === 0" class="alert alert-ok" role="status">
           Select a department (and level) to load courses.
         </div>
@@ -130,27 +134,24 @@ async function save({ skipCourses = false } = {}) {
           <button
             v-for="c in courseOptions"
             :key="c.id"
-            type="button"
             class="card card-press card-pad text-left"
-            :aria-pressed="pickedCourseIds.includes(c.id)"
+            :class="pickedCourseIds.includes(c.id) ? 'ring-2 ring-accent/50' : ''"
+            type="button"
             @click="toggleCourse(c.id)"
           >
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="text-sm font-extrabold truncate">{{ c.label }}</div>
-                <div class="text-xs text-text-3 mt-1">Tap to {{ pickedCourseIds.includes(c.id) ? 'remove' : 'add' }}</div>
-              </div>
-              <span class="badge" v-if="pickedCourseIds.includes(c.id)">Picked</span>
+            <div class="text-sm font-semibold">{{ c.label }}</div>
+            <div class="text-xs text-text-3 mt-1">
+              {{ pickedCourseIds.includes(c.id) ? 'Selected' : 'Tap to select' }}
             </div>
           </button>
         </div>
       </div>
 
-      <div v-if="error" class="alert alert-warn mt-5" role="alert">{{ error }}</div>
+      <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
 
-      <div class="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div class="mt-6 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
         <div class="text-xs text-text-3">
-          You can change this anytime in Profile.
+          You can change this later in your profile.
         </div>
 
         <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">

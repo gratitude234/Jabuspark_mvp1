@@ -3,14 +3,11 @@ import { computed, onMounted, ref } from 'vue'
 import { useDataStore } from '../stores/data'
 import { useContentStore } from '../stores/content'
 import AppCard from '../components/AppCard.vue'
-import AppButton from '../components/AppButton.vue'
-import PdfModal from '../components/PdfModal.vue'
 
 const data = useDataStore()
 const content = useContentStore()
 
 const tab = ref('pastQuestions') // pastQuestions | materials | questions
-const openItem = ref(null)
 
 onMounted(async () => {
   await data.fetchProgress()
@@ -27,139 +24,125 @@ const saved = computed(() => data.progress.saved || { pastQuestions: [], materia
 const savedPast = computed(() => (content.pastQuestions || []).filter(pq => saved.value.pastQuestions.includes(pq.id)))
 const savedMaterials = computed(() => (content.materials || []).filter(m => saved.value.materials.includes(m.id)))
 
+// Questions are saved by id; bank items may not include question details here.
+// Keep as count + guidance for now.
 const savedQuestionsCount = computed(() => (saved.value.questions || []).length)
-
-async function toggleSaved(kind, id) {
-  await data.toggleSave(kind, id)
-}
-
-const tabCounts = computed(() => ({
-  pastQuestions: savedPast.value.length,
-  materials: savedMaterials.value.length,
-  questions: savedQuestionsCount.value
-}))
 </script>
 
 <template>
   <div class="page">
     <AppCard>
-      <div class="flex items-start justify-between gap-3">
-        <div>
+      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div class="min-w-0">
           <div class="h1">Saved</div>
-          <p class="sub mt-1">Everything you bookmarked in one place.</p>
+          <p class="sub mt-1">Your bookmarked past questions, materials, and questions.</p>
         </div>
-        <RouterLink class="btn btn-ghost" to="/practice">Practice</RouterLink>
+
+        <div class="seg w-full sm:w-auto" role="tablist" aria-label="Saved tabs">
+          <button
+            class="seg-btn"
+            :class="tab === 'pastQuestions' ? 'seg-btn--active' : 'seg-btn--inactive'"
+            role="tab"
+            :aria-selected="tab === 'pastQuestions'"
+            type="button"
+            @click="tab = 'pastQuestions'"
+          >
+            Past Q
+            <span class="badge ml-1">{{ saved.pastQuestions.length }}</span>
+          </button>
+
+          <button
+            class="seg-btn"
+            :class="tab === 'materials' ? 'seg-btn--active' : 'seg-btn--inactive'"
+            role="tab"
+            :aria-selected="tab === 'materials'"
+            type="button"
+            @click="tab = 'materials'"
+          >
+            Materials
+            <span class="badge ml-1">{{ saved.materials.length }}</span>
+          </button>
+
+          <button
+            class="seg-btn"
+            :class="tab === 'questions' ? 'seg-btn--active' : 'seg-btn--inactive'"
+            role="tab"
+            :aria-selected="tab === 'questions'"
+            type="button"
+            @click="tab = 'questions'"
+          >
+            Questions
+            <span class="badge ml-1">{{ savedQuestionsCount }}</span>
+          </button>
+        </div>
       </div>
 
-      <div class="mt-5 flex flex-wrap gap-2">
-        <button type="button" class="btn" :class="tab==='pastQuestions' ? 'btn-primary' : 'btn-ghost'" @click="tab='pastQuestions'">
-          Past Q ({{ tabCounts.pastQuestions }})
-        </button>
-        <button type="button" class="btn" :class="tab==='materials' ? 'btn-primary' : 'btn-ghost'" @click="tab='materials'">
-          Materials ({{ tabCounts.materials }})
-        </button>
-        <button type="button" class="btn" :class="tab==='questions' ? 'btn-primary' : 'btn-ghost'" @click="tab='questions'">
-          Questions ({{ tabCounts.questions }})
-        </button>
+      <div v-if="data.loading.progress" class="mt-4 grid gap-2">
+        <div class="skeleton h-16" />
+        <div class="skeleton h-16" />
       </div>
-
-      <div v-if="data.error" class="alert alert-warn mt-4" role="alert">{{ data.error }}</div>
     </AppCard>
 
-    <!-- Past Questions -->
-    <div v-if="tab==='pastQuestions'">
-      <AppCard v-if="savedPast.length === 0">
-        <div class="h2">No saved past questions</div>
-        <p class="sub mt-1">Save past questions to quickly find them here.</p>
-        <div class="mt-3">
-          <RouterLink class="btn btn-ghost" to="/past-questions">Browse past questions</RouterLink>
-        </div>
-      </AppCard>
+    <AppCard v-if="tab === 'pastQuestions'">
+      <div class="h2">Past questions</div>
+      <p class="sub mt-1">Quick access to what you saved.</p>
 
-      <div v-else class="grid gap-3">
-        <div v-for="pq in savedPast" :key="pq.id" class="card card-pad">
-          <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-            <div class="min-w-0">
-              <div class="text-base sm:text-lg font-extrabold truncate">{{ pq.title }}</div>
-              <div class="text-sm text-text-2 mt-1">
-                {{ pq.session }} <span class="text-text-3">•</span> {{ pq.semester }}
-              </div>
-            </div>
+      <div class="divider my-4" />
 
-            <div class="flex flex-wrap gap-2 sm:justify-end">
-              <AppButton variant="ghost" size="sm" @click="toggleSaved('pastQuestions', pq.id)">Remove</AppButton>
-              <AppButton variant="ghost" size="sm" @click="openItem = pq">Preview</AppButton>
-              <a class="btn btn-ghost btn-sm" :href="pq.fileUrl" target="_blank" rel="noreferrer">Open</a>
-            </div>
-          </div>
-        </div>
+      <div v-if="savedPast.length === 0" class="alert alert-ok" role="status">
+        Nothing saved yet. When you save a past question, it shows up here.
+        <RouterLink to="/past-questions" class="underline text-accent font-semibold ml-1">Browse past questions</RouterLink>
       </div>
 
-      <PdfModal
-        :open="!!openItem"
-        :title="openItem?.title || 'Saved item'"
-        :url="openItem?.fileUrl || ''"
-        @close="openItem = null"
-      />
-    </div>
+      <div v-else class="grid gap-2">
+        <RouterLink
+          v-for="pq in savedPast"
+          :key="pq.id"
+          to="/past-questions"
+          class="card card-press card-pad"
+        >
+          <div class="text-sm font-extrabold truncate">{{ pq.title }}</div>
+          <div class="text-xs text-text-3 mt-1">{{ pq.session }} • {{ pq.semester }}</div>
+        </RouterLink>
+      </div>
+    </AppCard>
 
-    <!-- Materials -->
-    <div v-else-if="tab==='materials'">
-      <AppCard v-if="savedMaterials.length === 0">
-        <div class="h2">No saved materials</div>
-        <p class="sub mt-1">Save lecture notes and PDFs to quickly find them here.</p>
-        <div class="mt-3">
-          <RouterLink class="btn btn-ghost" to="/materials">Browse materials</RouterLink>
-        </div>
-      </AppCard>
+    <AppCard v-else-if="tab === 'materials'">
+      <div class="h2">Materials</div>
+      <p class="sub mt-1">Your saved PDFs and notes.</p>
 
-      <div v-else class="grid gap-3">
-        <div v-for="m in savedMaterials" :key="m.id" class="card card-pad">
-          <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-            <div class="min-w-0">
-              <div class="text-base sm:text-lg font-extrabold truncate">{{ m.title }}</div>
-              <div class="text-sm text-text-2 mt-1">
-                <span v-if="m.type">{{ m.type }}</span>
-              </div>
-              <div v-if="m.tags?.length" class="mt-2 flex flex-wrap gap-2">
-                <span v-for="t in m.tags" :key="t" class="badge">{{ t }}</span>
-              </div>
-            </div>
+      <div class="divider my-4" />
 
-            <div class="flex flex-wrap gap-2 sm:justify-end">
-              <AppButton variant="ghost" size="sm" @click="toggleSaved('materials', m.id)">Remove</AppButton>
-              <AppButton variant="ghost" size="sm" @click="openItem = m">Preview</AppButton>
-              <a class="btn btn-ghost btn-sm" :href="m.fileUrl" target="_blank" rel="noreferrer">Open</a>
-            </div>
-          </div>
-        </div>
+      <div v-if="savedMaterials.length === 0" class="alert alert-ok" role="status">
+        No materials saved yet.
+        <RouterLink to="/materials" class="underline text-accent font-semibold ml-1">Browse materials</RouterLink>
       </div>
 
-      <PdfModal
-        :open="!!openItem"
-        :title="openItem?.title || 'Saved item'"
-        :url="openItem?.fileUrl || ''"
-        @close="openItem = null"
-      />
-    </div>
+      <div v-else class="grid gap-2">
+        <RouterLink
+          v-for="m in savedMaterials"
+          :key="m.id"
+          to="/materials"
+          class="card card-press card-pad"
+        >
+          <div class="text-sm font-extrabold truncate">{{ m.title }}</div>
+          <div class="text-xs text-text-3 mt-1">{{ (m.tags || []).slice(0, 3).join(', ') }}</div>
+        </RouterLink>
+      </div>
+    </AppCard>
 
-    <!-- Questions -->
-    <div v-else>
-      <AppCard>
-        <div class="h2">Saved questions</div>
-        <p class="sub mt-1">
-          You have <strong>{{ savedQuestionsCount }}</strong> saved question(s).
-        </p>
-        <p class="help mt-2">
-          Saved question IDs are stored, but question details live inside banks. To revisit them,
-          open your practice banks and look for the “Saved” badge.
-        </p>
+    <AppCard v-else>
+      <div class="h2">Saved questions</div>
+      <p class="sub mt-1">
+        Saved questions are tracked by ID. Open a bank to continue practising and review explanations.
+      </p>
 
-        <div class="mt-4 flex flex-wrap gap-2">
-          <RouterLink to="/practice" class="btn btn-primary">Go to practice</RouterLink>
-          <RouterLink to="/practice" class="btn btn-ghost">Browse banks</RouterLink>
-        </div>
-      </AppCard>
-    </div>
+      <div class="divider my-4" />
+
+      <div class="alert alert-ok" role="status">
+        You have <span class="font-semibold">{{ savedQuestionsCount }}</span> saved question(s).
+        <RouterLink to="/practice" class="underline text-accent font-semibold ml-1">Go to practice banks</RouterLink>
+      </div>
+    </AppCard>
   </div>
 </template>

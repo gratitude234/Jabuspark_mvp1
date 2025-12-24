@@ -15,40 +15,18 @@ const data = useDataStore()
 const catalog = useCatalogStore()
 const content = useContentStore()
 
-const profile = computed(() => auth.user?.profile || {})
-
-// Keep course selection stable even if profile arrives later
-const selectedCourseId = ref(null)
-watch(
-  () => profile.value.courseIds,
-  (ids) => {
-    const first = (ids || [])[0] || null
-    if (!selectedCourseId.value) selectedCourseId.value = first
-    if (selectedCourseId.value && !(ids || []).includes(selectedCourseId.value)) {
-      selectedCourseId.value = first
-    }
-  },
-  { immediate: true }
-)
-
+const selectedCourseId = ref(auth.user?.profile?.courseIds?.[0] || null)
 const query = ref('')
 const openItem = ref(null)
 
 const myCourses = computed(() =>
-  (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
+  (catalog.courses || []).filter(c => (auth.user?.profile?.courseIds || []).includes(c.id))
 )
+const courseOptions = computed(() => myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` })))
 
-const courseOptions = computed(() => {
-  const opts = myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` }))
-  return [{ value: null, label: 'All my courses' }, ...opts]
-})
-
-const itemsByCourse = computed(() => {
-  const list = content.materials || []
-  const cid = selectedCourseId.value
-  if (!cid) return list
-  return list.filter(m => m.courseId === cid)
-})
+const itemsByCourse = computed(() =>
+  (content.materials || []).filter(m => !selectedCourseId.value || m.courseId === selectedCourseId.value)
+)
 
 const items = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -59,24 +37,13 @@ const items = computed(() => {
   })
 })
 
-async function retry() {
-  await Promise.allSettled([
-    data.fetchProgress(),
-    content.fetchMaterials({ courseId: selectedCourseId.value || '' })
-  ])
-}
-
-watch(
-  () => [auth.isAuthed, selectedCourseId.value],
-  async ([isAuthed, cid]) => {
-    if (!isAuthed) return
-    await content.fetchMaterials({ courseId: cid || '' })
-  },
-  { immediate: true }
-)
+watch(selectedCourseId, async (cid) => {
+  await content.fetchMaterials({ courseId: cid || '' })
+})
 
 onMounted(async () => {
   await Promise.allSettled([catalog.fetchCourses(), data.fetchProgress()])
+  await content.fetchMaterials({ courseId: selectedCourseId.value || '' })
 })
 
 async function toggleSave(m) {
@@ -108,33 +75,29 @@ async function toggleSave(m) {
       <div class="mt-4 grid gap-3 sm:grid-cols-2">
         <div>
           <label class="label" for="matsearch">Search</label>
-          <AppInput id="matsearch" v-model="query" placeholder="Search materials…" />
+          <AppInput
+            id="matsearch"
+            v-model="query"
+            placeholder="Search by title, type, or tag…"
+          />
         </div>
       </div>
 
-      <div v-if="content.error" class="alert alert-warn mt-4" role="alert">
-        <div class="flex items-center justify-between gap-2">
-          <span>{{ content.error }}</span>
-          <button type="button" class="btn btn-ghost" @click="retry">Retry</button>
-        </div>
-      </div>
+      <div v-if="content.error" class="alert alert-warn mt-4" role="alert">{{ content.error }}</div>
     </AppCard>
 
     <AppCard v-if="content.loading.materials">
       <div class="grid gap-2">
-        <div class="skeleton h-16" />
-        <div class="skeleton h-16" />
-        <div class="skeleton h-16" />
+        <div class="skeleton h-20" />
+        <div class="skeleton h-20" />
+        <div class="skeleton h-20" />
       </div>
     </AppCard>
 
     <AppCard v-else-if="items.length === 0">
       <div class="h2">No materials found</div>
-      <p class="sub mt-1">Try a different course or search term. New items are added regularly.</p>
-      <div class="mt-3 flex gap-2">
-        <button type="button" class="btn btn-ghost" @click="retry">Refresh</button>
-        <RouterLink to="/saved" class="btn btn-ghost">View saved</RouterLink>
-      </div>
+      <p class="sub mt-1">Try selecting a different course, or check back later.</p>
+      <RouterLink to="/practice" class="btn btn-ghost mt-4">Go to practice</RouterLink>
     </AppCard>
 
     <div v-else class="grid gap-3">
@@ -144,11 +107,8 @@ async function toggleSave(m) {
             <div class="text-base sm:text-lg font-extrabold truncate">{{ m.title }}</div>
             <div class="text-sm text-text-2 mt-1">
               <span v-if="m.type">{{ m.type }}</span>
-              <span v-if="m.uploadedAt" class="text-text-3">•</span>
-              <span v-if="m.uploadedAt">{{ m.uploadedAt }}</span>
-            </div>
-            <div v-if="m.tags?.length" class="mt-2 flex flex-wrap gap-2">
-              <span v-for="t in m.tags" :key="t" class="badge">{{ t }}</span>
+              <span v-if="m.type && m.tags?.length" class="text-text-3"> • </span>
+              <span v-if="m.tags?.length">{{ m.tags.join(', ') }}</span>
             </div>
           </div>
 
@@ -156,7 +116,7 @@ async function toggleSave(m) {
             <AppButton variant="ghost" size="sm" @click="toggleSave(m)">
               {{ data.isSaved('materials', m.id) ? 'Saved' : 'Save' }}
             </AppButton>
-            <AppButton variant="ghost" size="sm" @click="openItem = m">Preview</AppButton>
+            <AppButton variant="primary" size="sm" @click="openItem = m">Preview</AppButton>
             <a class="btn btn-ghost btn-sm" :href="m.fileUrl" target="_blank" rel="noreferrer">Open</a>
           </div>
         </div>
