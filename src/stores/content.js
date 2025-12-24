@@ -34,7 +34,17 @@ export const useContentStore = defineStore('content', {
       this.error = null
       try {
         const res = await apiFetch(`/banks/${encodeURIComponent(bankId)}`)
-        this.bank = res?.data?.bank || null
+        const bank = res?.data?.bank || null
+        // Normalize question shape (backend may send legacy prompt/explain)
+        if (bank?.questions?.length) {
+          bank.questions = bank.questions.map((q) => ({
+            ...q,
+            answerIndex: typeof q.answerIndex === 'string' ? Number(q.answerIndex) : q.answerIndex,
+            question: q.question ?? q.prompt ?? '',
+            explanation: q.explanation ?? q.explain ?? '',
+          }))
+        }
+        this.bank = bank
       } catch (e) {
         this.error = e?.message || 'Failed to load bank'
         this.bank = null

@@ -5,6 +5,7 @@ import { useDataStore } from '../stores/data'
 import { useCatalogStore } from '../stores/catalog'
 import { useContentStore } from '../stores/content'
 import AppCard from '../components/AppCard.vue'
+import AppInput from '../components/AppInput.vue'
 import AppSelect from '../components/AppSelect.vue'
 import AppButton from '../components/AppButton.vue'
 import PdfModal from '../components/PdfModal.vue'
@@ -15,6 +16,7 @@ const catalog = useCatalogStore()
 const content = useContentStore()
 
 const selectedCourseId = ref(auth.user?.profile?.courseIds?.[0] || null)
+const query = ref('')
 const openItem = ref(null)
 
 const myCourses = computed(() =>
@@ -22,9 +24,18 @@ const myCourses = computed(() =>
 )
 const courseOptions = computed(() => myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` })))
 
-const items = computed(() =>
+const itemsByCourse = computed(() =>
   (content.pastQuestions || []).filter(pq => !selectedCourseId.value || pq.courseId === selectedCourseId.value)
 )
+
+const items = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return itemsByCourse.value
+  return itemsByCourse.value.filter(pq => {
+    const hay = [pq.title, pq.session, pq.semester, pq.uploadedAt].filter(Boolean).join(' ').toLowerCase()
+    return hay.includes(q)
+  })
+})
 
 watch(selectedCourseId, async (cid) => {
   await content.fetchPastQuestions({ courseId: cid || '' })
@@ -58,6 +69,17 @@ async function toggleSave(pq) {
             placeholder="All my courses"
           />
           <p class="help">Showing {{ items.length }} item(s).</p>
+        </div>
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="label" for="pqsearch">Search</label>
+          <AppInput
+            id="pqsearch"
+            v-model="query"
+            placeholder="Search by title, session, semester…"
+          />
         </div>
       </div>
 

@@ -96,7 +96,7 @@ async function save() {
 
 async function logout() {
   await auth.logout()
-  router.push('/login')
+  router.push('/auth/login')
 }
 </script>
 

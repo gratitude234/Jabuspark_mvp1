@@ -1,19 +1,34 @@
 <script setup>
-import { onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useDataStore } from './stores/data'
 import { useCatalogStore } from './stores/catalog'
+import ToastHost from './components/ToastHost.vue'
 
 const auth = useAuthStore()
 const data = useDataStore()
 const catalog = useCatalogStore()
+const router = useRouter()
+
+const toast = ref(null)
+
+function handleAuthExpired() {
+  toast.value?.push('Session expired. Please log in again.', 'warn')
+  router.push('/auth/login')
+}
 
 onMounted(async () => {
+  window.addEventListener('auth:expired', handleAuthExpired)
   await auth.hydrate()
   if (auth.isAuthed) {
     // keep these light; pages can fetch deeper lists as needed
     await Promise.allSettled([catalog.bootstrap(), data.bootstrap()])
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('auth:expired', handleAuthExpired)
 })
 </script>
 
@@ -26,5 +41,7 @@ onMounted(async () => {
     </div>
 
     <RouterView />
+
+    <ToastHost ref="toast" />
   </div>
 </template>

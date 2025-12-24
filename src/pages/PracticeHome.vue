@@ -5,6 +5,7 @@ import { useCatalogStore } from '../stores/catalog'
 import { useContentStore } from '../stores/content'
 import { useDataStore } from '../stores/data'
 import AppCard from '../components/AppCard.vue'
+import AppInput from '../components/AppInput.vue'
 import AppSelect from '../components/AppSelect.vue'
 import StatPill from '../components/StatPill.vue'
 
@@ -15,6 +16,7 @@ const data = useDataStore()
 
 const profile = computed(() => auth.user?.profile || {})
 const selectedCourseId = ref(profile.value.courseIds?.[0] || null)
+const query = ref('')
 
 const myCourses = computed(() =>
   (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
@@ -30,7 +32,15 @@ onMounted(async () => {
   await content.fetchBanks({ courseId: selectedCourseId.value || '' })
 })
 
-const banks = computed(() => content.banks || [])
+const banks = computed(() => {
+  const list = content.banks || []
+  const q = query.value.trim().toLowerCase()
+  if (!q) return list
+  return list.filter((b) => {
+    const hay = [b.title, b.mode].filter(Boolean).join(' ').toLowerCase()
+    return hay.includes(q)
+  })
+})
 </script>
 
 <template>
@@ -57,6 +67,17 @@ const banks = computed(() => content.banks || [])
             placeholder="All my courses"
           />
           <p class="help">Tip: choose a course to see focused banks.</p>
+        </div>
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="label" for="banksearch">Search</label>
+          <AppInput
+            id="banksearch"
+            v-model="query"
+            placeholder="Search banks…"
+          />
         </div>
       </div>
 
