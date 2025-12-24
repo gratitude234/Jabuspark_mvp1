@@ -15,35 +15,67 @@ const data = useDataStore()
 const catalog = useCatalogStore()
 const content = useContentStore()
 
-const selectedCourseId = ref(auth.user?.profile?.courseIds?.[0] || null)
+const profile = computed(() => auth.user?.profile || {})
+
+const selectedCourseId = ref(null)
+watch(
+  () => profile.value.courseIds,
+  (ids) => {
+    const first = (ids || [])[0] || null
+    if (!selectedCourseId.value) selectedCourseId.value = first
+    if (selectedCourseId.value && !(ids || []).includes(selectedCourseId.value)) {
+      selectedCourseId.value = first
+    }
+  },
+  { immediate: true }
+)
+
 const query = ref('')
 const openItem = ref(null)
 
 const myCourses = computed(() =>
-  (catalog.courses || []).filter(c => (auth.user?.profile?.courseIds || []).includes(c.id))
+  (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
 )
-const courseOptions = computed(() => myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` })))
 
-const itemsByCourse = computed(() =>
-  (content.pastQuestions || []).filter(pq => !selectedCourseId.value || pq.courseId === selectedCourseId.value)
-)
+const courseOptions = computed(() => {
+  const opts = myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` }))
+  return [{ value: null, label: 'All my courses' }, ...opts]
+})
+
+const itemsByCourse = computed(() => {
+  const list = content.pastQuestions || []
+  const cid = selectedCourseId.value
+  if (!cid) return list
+  return list.filter(pq => pq.courseId === cid)
+})
 
 const items = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (!q) return itemsByCourse.value
   return itemsByCourse.value.filter(pq => {
-    const hay = [pq.title, pq.session, pq.semester, pq.uploadedAt].filter(Boolean).join(' ').toLowerCase()
+    const hay = [pq.title, pq.session, pq.semester].filter(Boolean).join(' ').toLowerCase()
     return hay.includes(q)
   })
 })
 
-watch(selectedCourseId, async (cid) => {
-  await content.fetchPastQuestions({ courseId: cid || '' })
-})
+async function retry() {
+  await Promise.allSettled([
+    data.fetchProgress(),
+    content.fetchPastQuestions({ courseId: selectedCourseId.value || '' })
+  ])
+}
+
+watch(
+  () => [auth.isAuthed, selectedCourseId.value],
+  async ([isAuthed, cid]) => {
+    if (!isAuthed) return
+    await content.fetchPastQuestions({ courseId: cid || '' })
+  },
+  { immediate: true }
+)
 
 onMounted(async () => {
   await Promise.allSettled([catalog.fetchCourses(), data.fetchProgress()])
-  await content.fetchPastQuestions({ courseId: selectedCourseId.value || '' })
 })
 
 async function toggleSave(pq) {
@@ -75,29 +107,33 @@ async function toggleSave(pq) {
       <div class="mt-4 grid gap-3 sm:grid-cols-2">
         <div>
           <label class="label" for="pqsearch">Search</label>
-          <AppInput
-            id="pqsearch"
-            v-model="query"
-            placeholder="Search by title, session, semester…"
-          />
+          <AppInput id="pqsearch" v-model="query" placeholder="Search past questions…" />
         </div>
       </div>
 
-      <div v-if="content.error" class="alert alert-warn mt-4" role="alert">{{ content.error }}</div>
+      <div v-if="content.error" class="alert alert-warn mt-4" role="alert">
+        <div class="flex items-center justify-between gap-2">
+          <span>{{ content.error }}</span>
+          <button type="button" class="btn btn-ghost" @click="retry">Retry</button>
+        </div>
+      </div>
     </AppCard>
 
     <AppCard v-if="content.loading.pastQuestions">
       <div class="grid gap-2">
-        <div class="skeleton h-20" />
-        <div class="skeleton h-20" />
-        <div class="skeleton h-20" />
+        <div class="skeleton h-16" />
+        <div class="skeleton h-16" />
+        <div class="skeleton h-16" />
       </div>
     </AppCard>
 
     <AppCard v-else-if="items.length === 0">
       <div class="h2">No past questions found</div>
-      <p class="sub mt-1">Try selecting a different course, or check back later.</p>
-      <RouterLink to="/materials" class="btn btn-ghost mt-4">Browse materials</RouterLink>
+      <p class="sub mt-1">Try a different course or search term. New items are added regularly.</p>
+      <div class="mt-3 flex gap-2">
+        <button type="button" class="btn btn-ghost" @click="retry">Refresh</button>
+        <RouterLink to="/saved" class="btn btn-ghost">View saved</RouterLink>
+      </div>
     </AppCard>
 
     <div v-else class="grid gap-3">
@@ -116,7 +152,7 @@ async function toggleSave(pq) {
             <AppButton variant="ghost" size="sm" @click="toggleSave(pq)">
               {{ data.isSaved('pastQuestions', pq.id) ? 'Saved' : 'Save' }}
             </AppButton>
-            <AppButton variant="primary" size="sm" @click="openItem = pq">Preview</AppButton>
+            <AppButton variant="ghost" size="sm" @click="openItem = pq">Preview</AppButton>
             <a class="btn btn-ghost btn-sm" :href="pq.fileUrl" target="_blank" rel="noreferrer">Open</a>
           </div>
         </div>
@@ -125,7 +161,7 @@ async function toggleSave(pq) {
 
     <PdfModal
       :open="!!openItem"
-      :title="openItem?.title || 'Past question'"
+      :title="openItem?.title || 'Past Question'"
       :url="openItem?.fileUrl || ''"
       @close="openItem = null"
     />

@@ -16,14 +16,13 @@ const data = useDataStore()
 
 const profile = computed(() => auth.user?.profile || {})
 
-// Keep selectedCourseId in sync even if profile loads after page mounts
+// Keep course selection stable, even if profile arrives later
 const selectedCourseId = ref(null)
 watch(
   () => profile.value.courseIds,
   (ids) => {
     const first = (ids || [])[0] || null
     if (!selectedCourseId.value) selectedCourseId.value = first
-    // If selected course no longer in profile, reset
     if (selectedCourseId.value && !(ids || []).includes(selectedCourseId.value)) {
       selectedCourseId.value = first
     }
@@ -33,52 +32,20 @@ watch(
 
 const query = ref('')
 
-// Courses shown = only courses in profile
 const myCourses = computed(() =>
   (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
 )
 
 const courseOptions = computed(() => {
-  // Add a friendly “All my courses” option
   const opts = myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` }))
   return [{ value: null, label: 'All my courses' }, ...opts]
 })
 
-// Optional: resume/continue support (if your data store has lastActive)
 const lastActive = computed(() => data.progress.lastActive || null)
 const continueBank = computed(() => {
   const bankId = lastActive.value?.bankId
   if (!bankId) return null
-  // If your content store has bankById getter, use it; else fallback.
-  return content.bankById?.(bankId) || (content.banks || []).find(b => b.id === bankId) || null
-})
-
-const wrongCount = computed(() => (typeof data.totalWrongCount === 'number' ? data.totalWrongCount : 0))
-
-async function fetchAll() {
-  await Promise.allSettled([catalog.fetchCourses(), data.fetchProgress()])
-}
-
-async function fetchBanks() {
-  await content.fetchBanks({ courseId: selectedCourseId.value || '' })
-}
-
-async function retry() {
-  await Promise.allSettled([data.fetchProgress(), fetchBanks()])
-}
-
-// ✅ Single fetch pipeline: watch course + auth, fetch once and refetch on change
-watch(
-  () => [auth.isAuthed, selectedCourseId.value],
-  async ([isAuthed]) => {
-    if (!isAuthed) return
-    await fetchBanks()
-  },
-  { immediate: true }
-)
-
-onMounted(async () => {
-  await fetchAll()
+  return (content.banks || []).find(b => b.id === bankId) || null
 })
 
 const banks = computed(() => {
@@ -90,6 +57,28 @@ const banks = computed(() => {
     return hay.includes(q)
   })
 })
+
+async function retry() {
+  await Promise.allSettled([
+    data.fetchProgress(),
+    content.fetchBanks({ courseId: selectedCourseId.value || '' })
+  ])
+}
+
+// Fetch catalog + progress once
+onMounted(async () => {
+  await Promise.allSettled([catalog.fetchCourses(), data.fetchProgress()])
+})
+
+// Fetch banks when authenticated and when course filter changes (single pipeline)
+watch(
+  () => [auth.isAuthed, selectedCourseId.value],
+  async ([isAuthed, courseId]) => {
+    if (!isAuthed) return
+    await content.fetchBanks({ courseId: courseId || '' })
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -106,22 +95,9 @@ const banks = computed(() => {
             <StatPill label="Answered" :value="data.progress.totalAnswered" />
           </div>
 
-          <!-- ✅ Continue / Review row -->
-          <div v-if="continueBank || wrongCount" class="mt-4 flex flex-wrap gap-2">
-            <RouterLink
-              v-if="continueBank"
-              class="btn btn-primary"
-              :to="`/practice/${continueBank.id}?resume=1`"
-            >
+          <div v-if="continueBank" class="mt-4">
+            <RouterLink class="btn btn-primary" :to="`/practice/${continueBank.id}?resume=1`">
               Continue
-            </RouterLink>
-
-            <RouterLink
-              v-if="wrongCount > 0"
-              class="btn btn-ghost"
-              to="/review"
-            >
-              Review wrong ({{ wrongCount }})
             </RouterLink>
           </div>
         </div>
@@ -141,11 +117,7 @@ const banks = computed(() => {
       <div class="mt-4 grid gap-3 sm:grid-cols-2">
         <div>
           <label class="label" for="banksearch">Search</label>
-          <AppInput
-            id="banksearch"
-            v-model="query"
-            placeholder="Search banks…"
-          />
+          <AppInput id="banksearch" v-model="query" placeholder="Search banks…" />
         </div>
       </div>
 

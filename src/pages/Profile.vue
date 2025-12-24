@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import AppCard from '../components/AppCard.vue'
 import AppSelect from '../components/AppSelect.vue'
+import AppInput from '../components/AppInput.vue'
 import AppButton from '../components/AppButton.vue'
 
 const router = useRouter()
@@ -14,15 +15,14 @@ const catalog = useCatalogStore()
 const user = computed(() => auth.user || {})
 const profile = computed(() => user.value.profile || {})
 
+const busy = ref(false)
+const error = ref('')
+
 const fullName = ref(user.value.fullName || '')
 const facultyId = ref(profile.value.facultyId || null)
 const departmentId = ref(profile.value.departmentId || null)
 const level = ref(profile.value.level || 200)
 const pickedCourseIds = ref([...(profile.value.courseIds || [])])
-
-const busy = ref(false)
-const error = ref('')
-const savedOk = ref(false)
 
 const levelOptions = [
   { value: 100, label: '100 Level' },
@@ -35,7 +35,6 @@ const levelOptions = [
 
 const facultyOptions = computed(() => (catalog.faculties || []).map(f => ({ value: f.id, label: f.name })))
 const departmentOptions = computed(() => (catalog.departments || []).map(d => ({ value: d.id, label: d.name })))
-
 const courseOptions = computed(() => (catalog.courses || []).map(c => ({
   id: c.id,
   label: `${c.code} — ${c.title} (${c.level})`
@@ -61,6 +60,7 @@ watch([departmentId, level], async ([dept, lvl]) => {
 })
 
 onMounted(async () => {
+  error.value = ''
   await catalog.bootstrap()
   if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
   if (departmentId.value) await catalog.fetchCourses({ departmentId: departmentId.value, level: Number(level.value) || 0 })
@@ -68,8 +68,6 @@ onMounted(async () => {
 
 async function save() {
   error.value = ''
-  savedOk.value = false
-
   const n = (fullName.value || '').trim()
   if (!n) return (error.value = 'Full name is required.')
   if (!facultyId.value) return (error.value = 'Choose a faculty to continue.')
@@ -78,7 +76,6 @@ async function save() {
 
   busy.value = true
   try {
-    // Keep current auth logic: update profile + name
     await auth.updateProfile({
       fullName: n,
       facultyId: facultyId.value,
@@ -86,7 +83,7 @@ async function save() {
       level: Number(level.value),
       courseIds: pickedCourseIds.value,
     })
-    savedOk.value = true
+    router.replace('/')
   } catch (e) {
     error.value = e?.message || 'Failed to save changes.'
   } finally {
@@ -95,121 +92,108 @@ async function save() {
 }
 
 async function logout() {
-  await auth.logout()
-  router.push('/auth/login')
+  busy.value = true
+  try {
+    await auth.logout()
+    router.replace('/login')
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
 <template>
   <div class="page">
-    <AppCard class="relative overflow-hidden">
-      <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/12 via-transparent to-transparent" />
-      <div class="relative">
-        <div class="h1">Profile</div>
-        <p class="sub mt-1">Update your study profile and account details.</p>
-
-        <div class="mt-5 grid gap-4 sm:grid-cols-2">
-          <div>
-            <label class="label" for="pname">Full name</label>
-            <input
-              id="pname"
-              v-model="fullName"
-              class="input"
-              autocomplete="name"
-              placeholder="Your full name"
-            />
-            <p class="help">Used for your dashboard greeting.</p>
-          </div>
-
-          <div class="flex flex-col sm:items-end sm:justify-end gap-2">
-            <AppButton class="w-full sm:w-auto" :disabled="busy" @click="save">
-              <span v-if="!busy">Save changes</span>
-              <span v-else>Saving…</span>
-            </AppButton>
-            <button class="btn btn-ghost w-full sm:w-auto" @click="logout">Log out</button>
-          </div>
+    <AppCard>
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="h1">Profile</div>
+          <p class="sub mt-1">Update your details and course selection.</p>
         </div>
 
-        <div v-if="savedOk" class="alert alert-ok mt-4" role="status">Saved successfully.</div>
-        <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
+        <button type="button" class="btn btn-ghost" :disabled="busy" @click="logout">
+          Log out
+        </button>
       </div>
-    </AppCard>
 
-    <AppCard>
-      <div class="h2">Study settings</div>
-      <p class="sub mt-1">This controls what content you see by default.</p>
+      <div class="divider my-6"></div>
 
-      <div class="divider my-4" />
-
-      <div class="grid gap-4 sm:grid-cols-3">
+      <div class="grid gap-4 sm:grid-cols-2">
         <div>
-          <label class="label" for="pfac">Faculty</label>
-          <AppSelect id="pfac" v-model="facultyId" :options="facultyOptions" placeholder="Select faculty…" />
+          <label class="label">Full name</label>
+          <AppInput v-model="fullName" placeholder="Your name" autocomplete="name" />
+          <p class="help">This is shown on your dashboard.</p>
+        </div>
+
+        <div>
+          <label class="label">Email</label>
+          <div class="card card-pad text-sm text-text-2">{{ user.email }}</div>
+          <p class="help">Email can’t be changed yet.</p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-3 sm:grid-cols-3">
+        <div class="sm:col-span-1">
+          <label class="label">Faculty</label>
+          <AppSelect v-model="facultyId" :options="facultyOptions" placeholder="Select faculty…" />
           <p v-if="catalog.loading.faculties" class="help">Loading…</p>
         </div>
 
-        <div>
-          <label class="label" for="pdept">Department</label>
-          <AppSelect id="pdept" v-model="departmentId" :options="departmentOptions" placeholder="Select department…" />
+        <div class="sm:col-span-1">
+          <label class="label">Department</label>
+          <AppSelect v-model="departmentId" :options="departmentOptions" placeholder="Select department…" />
           <p v-if="catalog.loading.departments" class="help">Loading…</p>
         </div>
 
-        <div>
-          <label class="label" for="plevel">Level</label>
-          <AppSelect id="plevel" v-model="level" :options="levelOptions" placeholder="Select level…" />
+        <div class="sm:col-span-1">
+          <label class="label">Level</label>
+          <AppSelect v-model="level" :options="levelOptions" placeholder="Select level…" />
         </div>
       </div>
 
-      <div class="divider my-6" />
+      <div class="divider my-6"></div>
 
-      <div class="row">
-        <div>
-          <div class="h2">Courses</div>
-          <p class="sub mt-1">Choose courses to personalise practice and filters.</p>
-        </div>
-        <span class="badge">{{ pickedCourseIds.length }} selected</span>
-      </div>
+      <div class="h2">My courses</div>
+      <p class="sub mt-1">Tap to add/remove courses. This powers your filters across the app.</p>
 
       <div class="mt-3">
         <p v-if="catalog.loading.courses" class="sub">Loading courses…</p>
         <div v-else-if="courseOptions.length === 0" class="alert alert-ok" role="status">
           Select a department (and level) to load courses.
         </div>
-
         <div v-else class="grid gap-2 sm:grid-cols-2">
           <button
             v-for="c in courseOptions"
             :key="c.id"
             type="button"
             class="card card-press card-pad text-left"
-            :class="pickedCourseIds.includes(c.id) ? 'ring-2 ring-accent/50' : ''"
+            :aria-pressed="pickedCourseIds.includes(c.id)"
             @click="toggleCourse(c.id)"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="text-sm font-extrabold truncate">{{ c.label }}</div>
                 <div class="text-xs text-text-3 mt-1">
-                  {{ pickedCourseIds.includes(c.id) ? 'Selected' : 'Tap to select' }}
+                  {{ pickedCourseIds.includes(c.id) ? 'Added' : 'Tap to add' }}
                 </div>
               </div>
-              <span class="badge" :class="pickedCourseIds.includes(c.id) ? 'bg-accent/15 border-accent/30 text-text' : ''">
-                {{ pickedCourseIds.includes(c.id) ? '✓' : '+' }}
-              </span>
+              <span class="badge" v-if="pickedCourseIds.includes(c.id)">Added</span>
             </div>
           </button>
         </div>
       </div>
-    </AppCard>
 
-    <AppCard>
-      <div class="h2">Account</div>
-      <p class="sub mt-1">Manage your session and app state.</p>
+      <div v-if="error" class="alert alert-warn mt-5" role="alert">{{ error }}</div>
 
-      <div class="divider my-4" />
+      <div class="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <button type="button" class="btn btn-ghost w-full sm:w-auto" :disabled="busy" @click="router.back()">
+          Back
+        </button>
 
-      <div class="flex flex-col sm:flex-row gap-2">
-        <RouterLink to="/dashboard" class="btn btn-ghost">Back to dashboard</RouterLink>
-        <RouterLink to="/saved" class="btn btn-ghost">Saved</RouterLink>
+        <AppButton class="w-full sm:w-auto" :disabled="busy" @click="save">
+          <span v-if="!busy">Save changes</span>
+          <span v-else>Saving…</span>
+        </AppButton>
       </div>
     </AppCard>
   </div>
