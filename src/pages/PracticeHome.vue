@@ -15,21 +15,70 @@ const content = useContentStore()
 const data = useDataStore()
 
 const profile = computed(() => auth.user?.profile || {})
-const selectedCourseId = ref(profile.value.courseIds?.[0] || null)
+
+// Keep selectedCourseId in sync even if profile loads after page mounts
+const selectedCourseId = ref(null)
+watch(
+  () => profile.value.courseIds,
+  (ids) => {
+    const first = (ids || [])[0] || null
+    if (!selectedCourseId.value) selectedCourseId.value = first
+    // If selected course no longer in profile, reset
+    if (selectedCourseId.value && !(ids || []).includes(selectedCourseId.value)) {
+      selectedCourseId.value = first
+    }
+  },
+  { immediate: true }
+)
+
 const query = ref('')
 
+// Courses shown = only courses in profile
 const myCourses = computed(() =>
   (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
 )
-const courseOptions = computed(() => myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` })))
 
-watch(selectedCourseId, async (cid) => {
-  await content.fetchBanks({ courseId: cid || '' })
+const courseOptions = computed(() => {
+  // Add a friendly “All my courses” option
+  const opts = myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` }))
+  return [{ value: null, label: 'All my courses' }, ...opts]
 })
 
-onMounted(async () => {
+// Optional: resume/continue support (if your data store has lastActive)
+const lastActive = computed(() => data.progress.lastActive || null)
+const continueBank = computed(() => {
+  const bankId = lastActive.value?.bankId
+  if (!bankId) return null
+  // If your content store has bankById getter, use it; else fallback.
+  return content.bankById?.(bankId) || (content.banks || []).find(b => b.id === bankId) || null
+})
+
+const wrongCount = computed(() => (typeof data.totalWrongCount === 'number' ? data.totalWrongCount : 0))
+
+async function fetchAll() {
   await Promise.allSettled([catalog.fetchCourses(), data.fetchProgress()])
+}
+
+async function fetchBanks() {
   await content.fetchBanks({ courseId: selectedCourseId.value || '' })
+}
+
+async function retry() {
+  await Promise.allSettled([data.fetchProgress(), fetchBanks()])
+}
+
+// ✅ Single fetch pipeline: watch course + auth, fetch once and refetch on change
+watch(
+  () => [auth.isAuthed, selectedCourseId.value],
+  async ([isAuthed]) => {
+    if (!isAuthed) return
+    await fetchBanks()
+  },
+  { immediate: true }
+)
+
+onMounted(async () => {
+  await fetchAll()
 })
 
 const banks = computed(() => {
@@ -56,6 +105,25 @@ const banks = computed(() => {
             <StatPill label="Accuracy" :value="data.progress.accuracy + '%'" />
             <StatPill label="Answered" :value="data.progress.totalAnswered" />
           </div>
+
+          <!-- ✅ Continue / Review row -->
+          <div v-if="continueBank || wrongCount" class="mt-4 flex flex-wrap gap-2">
+            <RouterLink
+              v-if="continueBank"
+              class="btn btn-primary"
+              :to="`/practice/${continueBank.id}?resume=1`"
+            >
+              Continue
+            </RouterLink>
+
+            <RouterLink
+              v-if="wrongCount > 0"
+              class="btn btn-ghost"
+              to="/review"
+            >
+              Review wrong ({{ wrongCount }})
+            </RouterLink>
+          </div>
         </div>
 
         <div class="w-full sm:w-[340px]">
@@ -81,7 +149,12 @@ const banks = computed(() => {
         </div>
       </div>
 
-      <div v-if="content.error" class="alert alert-warn mt-4" role="alert">{{ content.error }}</div>
+      <div v-if="content.error" class="alert alert-warn mt-4" role="alert">
+        <div class="flex items-center justify-between gap-2">
+          <span>{{ content.error }}</span>
+          <button type="button" class="btn btn-ghost" @click="retry">Retry</button>
+        </div>
+      </div>
     </AppCard>
 
     <AppCard v-if="content.loading.banks">
@@ -97,6 +170,10 @@ const banks = computed(() => {
       <p class="sub mt-1">
         Try selecting a different course, or check back later as new banks are added.
       </p>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="button" class="btn btn-ghost" @click="retry">Refresh</button>
+        <RouterLink to="/profile" class="btn btn-ghost">Update profile</RouterLink>
+      </div>
     </AppCard>
 
     <div v-else class="grid gap-3">
