@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useDataStore } from '../stores/data'
 import { useContentStore } from '../stores/content'
@@ -13,59 +13,105 @@ const content = useContentStore()
 const profile = computed(() => auth.user?.profile || {})
 const hasProfile = computed(() => !!profile.value?.departmentId)
 const firstCourseId = computed(() => (profile.value.courseIds || [])[0] || '')
-const quickBank = computed(() => content.banks?.[0] || null)
 
 const greeting = computed(() => {
   const name = (auth.user?.fullName || 'Student').split(' ')[0]
   return `Hi, ${name}`
 })
 
+// Prefer store heuristic if you applied my updated content store; fallback is first bank
+const recommendedBank = computed(() => content.recommendedBank || content.banks?.[0] || null)
+
+// Prefer store getters if you applied my updated data store; fallback is old behaviour
 const savedCount = computed(() => {
+  if (typeof data.savedCount === 'number') return data.savedCount
   const pq = data.progress.saved?.pastQuestions?.length || 0
-  const mat = data.progress.saved?.materials?.length || 0
-  return pq + mat
+  const m = data.progress.saved?.materials?.length || 0
+  return pq + m
 })
 
-const streak = computed(() => Number(data.progress.streak || 0))
-const accuracyPercent = computed(() => {
-  const n = Number(data.progress.accuracy || 0)
-  if (Number.isNaN(n)) return 0
-  return Math.max(0, Math.min(100, n))
+const wrongCount = computed(() => {
+  if (typeof data.totalWrongCount === 'number') return data.totalWrongCount
+  return 0
 })
 
-const fetchAll = async () => {
-  if (!auth.isAuthed) return
+const lastActive = computed(() => data.progress.lastActive || null)
+
+const dashboardPlan = computed(() => {
+  // 1) onboarding / incomplete profile
+  if (auth.needsOnboarding || !hasProfile.value) {
+    return {
+      title: "Today’s focus",
+      subtitle: "Complete onboarding to unlock personalised study.",
+      primary: { label: "Continue setup", to: "/onboarding" },
+      secondary: { label: "Explore practice", to: "/practice" },
+    }
+  }
+
+  // 2) continue where they left off
+  if (lastActive.value?.bankId) {
+    const bank = content.bankById?.(lastActive.value.bankId) || content.banks?.find(b => b.id === lastActive.value.bankId)
+    const bankTitle = bank?.title || 'your last bank'
+    return {
+      title: "Continue where you left off",
+      subtitle: `Pick up from ${bankTitle}.`,
+      primary: { label: "Continue", to: `/practice/${lastActive.value.bankId}?resume=1` },
+      secondary: { label: "Review wrong answers", to: "/review" },
+    }
+  }
+
+  // 3) review wrong answers (if your store exposes it)
+  if (wrongCount.value > 0) {
+    return {
+      title: "Review your weak spots",
+      subtitle: `You have ${wrongCount.value} wrong question${wrongCount.value === 1 ? '' : 's'} to fix.`,
+      primary: { label: "Review wrong answers", to: "/review" },
+      secondary: { label: "Browse banks", to: "/practice" },
+    }
+  }
+
+  // 4) default
+  return {
+    title: "Today’s focus",
+    subtitle: "Do 10 questions, then review your wrong answers.",
+    primary: {
+      label: recommendedBank.value ? "Start a bank" : "Browse banks",
+      to: recommendedBank.value ? `/practice/${recommendedBank.value.id}` : "/practice",
+    },
+    secondary: { label: "Open materials", to: "/materials" },
+  }
+})
+
+const retry = async () => {
   await Promise.allSettled([
     data.fetchProgress(),
-    content.fetchBanks({ courseId: firstCourseId.value || '' })
+    content.fetchBanks({ courseId: firstCourseId.value || '' }),
   ])
 }
 
-const retryProgress = async () => {
-  await data.fetchProgress()
-}
-
-onMounted(fetchAll)
-
-// If profile loads later (or course changes), refresh banks automatically
+// ✅ Critical fix: refetch when auth/course becomes available or changes
 watch(
   () => [auth.isAuthed, firstCourseId.value],
-  async ([isAuthed]) => {
+  async ([isAuthed, courseId]) => {
     if (!isAuthed) return
-    await content.fetchBanks({ courseId: firstCourseId.value || '' })
-  }
+    await Promise.allSettled([
+      data.fetchProgress(),
+      content.fetchBanks({ courseId: courseId || '' })
+    ])
+  },
+  { immediate: true }
 )
 </script>
 
 <template>
   <div class="page">
-    <!-- Onboarding -->
+    <!-- If profile not done -->
     <AppCard v-if="auth.needsOnboarding" class="relative overflow-hidden">
       <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/12 via-transparent to-transparent" />
 
       <div class="relative">
-        <p class="kicker">Welcome to JabuSpark</p>
-        <h1 class="h1 mt-1">Set up your study profile</h1>
+        <div class="kicker">Welcome to JabuSpark</div>
+        <div class="h1 mt-1">Set up your study profile</div>
         <p class="sub mt-2 max-w-[56ch]">
           Tell us your faculty, department, and level so we can personalise practice banks, materials, and past questions
           for you.
@@ -78,36 +124,22 @@ watch(
       </div>
     </AppCard>
 
-    <!-- Hero (only after onboarding) -->
-    <AppCard v-else class="relative overflow-hidden">
+    <!-- Hero -->
+    <AppCard class="relative overflow-hidden">
       <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/14 via-transparent to-transparent" />
 
       <div class="relative flex flex-col gap-4">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
-            <p class="kicker">Campus-ready study hub</p>
-            <h1 class="h1 mt-1 truncate">{{ greeting }}</h1>
+            <div class="kicker">Campus-ready study hub</div>
+            <div class="h1 mt-1 truncate">{{ greeting }}</div>
             <p class="sub mt-2">
               {{ hasProfile ? 'Pick up where you left off and keep your streak going.' : 'Complete onboarding to unlock personalised study.' }}
             </p>
           </div>
 
-          <RouterLink
-            to="/profile"
-            class="icon-btn"
-            aria-label="Open profile"
-            title="Profile"
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="h-5 w-5"
-            >
+          <RouterLink to="/profile" class="icon-btn" aria-label="Open profile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
               <path d="M20 21a8 8 0 0 0-16 0" />
               <circle cx="12" cy="7" r="4" />
             </svg>
@@ -116,14 +148,10 @@ watch(
 
         <!-- Quick actions -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <RouterLink
-            to="/practice"
-            class="card card-press card-pad min-h-[72px] focus:outline-none focus:ring-2 focus:ring-accent/40"
-            aria-label="Go to practice"
-          >
+          <RouterLink to="/practice" class="card card-press card-pad" aria-label="Go to practice">
             <div class="flex items-center gap-2">
-              <span class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center">
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
+              <span class="h-9 w-9 rounded-xl2 bg-accent/15 grid place-items-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
                   <path d="M5 4h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-4 3v-3H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" />
                 </svg>
               </span>
@@ -134,14 +162,10 @@ watch(
             </div>
           </RouterLink>
 
-          <RouterLink
-            to="/materials"
-            class="card card-press card-pad min-h-[72px] focus:outline-none focus:ring-2 focus:ring-accent/40"
-            aria-label="Go to materials"
-          >
+          <RouterLink to="/materials" class="card card-press card-pad" aria-label="Go to materials">
             <div class="flex items-center gap-2">
-              <span class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center">
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
+              <span class="h-9 w-9 rounded-xl2 bg-accent/15 grid place-items-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
                   <path d="M4 4h16v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4Z" />
                   <path d="M8 8h8" />
                   <path d="M8 12h8" />
@@ -154,14 +178,10 @@ watch(
             </div>
           </RouterLink>
 
-          <RouterLink
-            to="/past-questions"
-            class="card card-press card-pad min-h-[72px] focus:outline-none focus:ring-2 focus:ring-accent/40"
-            aria-label="Go to past questions"
-          >
+          <RouterLink to="/past-questions" class="card card-press card-pad" aria-label="Go to past questions">
             <div class="flex items-center gap-2">
-              <span class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center">
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
+              <span class="h-9 w-9 rounded-xl2 bg-accent/15 grid place-items-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
                   <path d="M7 3h10a2 2 0 0 1 2 2v16l-5-3-5 3-5-3V5a2 2 0 0 1 2-2Z" />
                   <path d="M9 7h6" />
                   <path d="M9 11h6" />
@@ -174,14 +194,10 @@ watch(
             </div>
           </RouterLink>
 
-          <RouterLink
-            to="/saved"
-            class="card card-press card-pad min-h-[72px] focus:outline-none focus:ring-2 focus:ring-accent/40"
-            aria-label="Go to saved"
-          >
+          <RouterLink to="/saved" class="card card-press card-pad" aria-label="Go to saved">
             <div class="flex items-center gap-2">
-              <span class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center">
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
+              <span class="h-9 w-9 rounded-xl2 bg-accent/15 grid place-items-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
                   <path d="M6 3h12a2 2 0 0 1 2 2v18l-8-4-8 4V5a2 2 0 0 1 2-2Z" />
                 </svg>
               </span>
@@ -193,71 +209,49 @@ watch(
           </RouterLink>
         </div>
 
-        <!-- Primary focus + progress -->
+        <!-- Continue card -->
         <div class="grid gap-2 sm:grid-cols-2">
-          <!-- Primary CTA -->
-          <section class="card card-pad" aria-label="Today’s focus">
-            <h2 class="text-sm font-extrabold">Today’s focus</h2>
-            <p class="sub mt-1">Do 10 questions, then review your wrong answers.</p>
-
-            <div class="mt-3 flex flex-col sm:flex-row gap-2">
-              <RouterLink
-                :to="quickBank ? `/practice/${quickBank.id}` : '/practice'"
-                class="btn btn-primary"
-              >
-                {{ quickBank ? 'Start a bank' : 'Browse banks' }}
+          <div class="card card-pad">
+            <div class="text-sm font-extrabold">{{ dashboardPlan.title }}</div>
+            <p class="sub mt-1">{{ dashboardPlan.subtitle }}</p>
+            <div class="mt-3 flex gap-2">
+              <RouterLink :to="dashboardPlan.primary.to" class="btn btn-primary">
+                {{ dashboardPlan.primary.label }}
               </RouterLink>
-              <RouterLink to="/materials" class="btn btn-ghost">Open materials</RouterLink>
+              <RouterLink v-if="dashboardPlan.secondary" :to="dashboardPlan.secondary.to" class="btn btn-ghost">
+                {{ dashboardPlan.secondary.label }}
+              </RouterLink>
             </div>
-          </section>
+          </div>
 
-          <!-- Progress -->
-          <section class="card card-pad" aria-label="Progress snapshot">
+          <div class="card card-pad">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <h2 class="text-sm font-extrabold">Progress snapshot</h2>
-                <p class="text-xs text-text-3">Updates as you practise.</p>
+                <div class="text-sm font-extrabold">Progress snapshot</div>
+                <div class="text-xs text-text-3">Updates as you practise.</div>
               </div>
-              <div class="badge" :title="`Streak: ${streak} day(s)`">{{ streak }}🔥</div>
+              <div class="badge">{{ data.progress.streak }}🔥</div>
             </div>
 
-            <div v-if="data.loading.progress" class="mt-4 grid grid-cols-3 gap-2" aria-busy="true">
+            <div v-if="data.loading.progress" class="mt-4 grid grid-cols-3 gap-2">
               <div class="skeleton h-16" />
               <div class="skeleton h-16" />
               <div class="skeleton h-16" />
             </div>
 
-            <div v-else class="mt-4">
-              <div class="grid grid-cols-3 gap-2">
-                <StatPill label="Answered" :value="data.progress.totalAnswered" />
-                <StatPill label="Accuracy" :value="accuracyPercent + '%'" />
-                <StatPill label="Saved" :value="savedCount" />
-              </div>
-
-              <!-- Tiny accuracy bar for faster “at a glance” reading -->
-              <div class="mt-3">
-                <div class="flex items-center justify-between text-xs text-text-3">
-                  <span>Accuracy</span>
-                  <span>{{ accuracyPercent }}%</span>
-                </div>
-                <div class="mt-1 h-2 rounded-full bg-accent/10 overflow-hidden">
-                  <div class="h-full bg-accent/60" :style="{ width: accuracyPercent + '%' }" />
-                </div>
-              </div>
+            <div v-else class="mt-4 grid grid-cols-3 gap-2">
+              <StatPill label="Answered" :value="data.progress.totalAnswered" />
+              <StatPill label="Accuracy" :value="data.progress.accuracy + '%'" />
+              <StatPill label="Saved" :value="savedCount" />
             </div>
 
-            <div
-              v-if="data.error"
-              class="alert alert-warn mt-3 flex items-start justify-between gap-3"
-              role="alert"
-            >
-              <div class="min-w-0">
-                <div class="text-sm font-extrabold">Couldn’t load progress</div>
-                <div class="text-xs text-text-3 mt-0.5">{{ data.error }}</div>
+            <div v-if="data.error" class="alert alert-warn mt-3" role="alert">
+              <div class="flex items-center justify-between gap-2">
+                <span>{{ data.error }}</span>
+                <button type="button" class="btn btn-ghost" @click="retry">Retry</button>
               </div>
-              <button type="button" class="btn btn-ghost" @click="retryProgress">Retry</button>
             </div>
-          </section>
+          </div>
         </div>
       </div>
     </AppCard>
@@ -266,7 +260,7 @@ watch(
     <AppCard>
       <div class="row">
         <div>
-          <h2 class="h2">Practice banks</h2>
+          <div class="h2">Practice banks</div>
           <p class="sub mt-1">Choose a bank and start drilling.</p>
         </div>
         <RouterLink to="/practice" class="btn btn-ghost">See all</RouterLink>
@@ -274,21 +268,14 @@ watch(
 
       <div class="divider my-4" />
 
-      <div v-if="content.loading.banks" class="grid gap-2" aria-busy="true">
+      <div v-if="content.loading.banks" class="grid gap-2">
         <div class="skeleton h-16" />
         <div class="skeleton h-16" />
         <div class="skeleton h-16" />
       </div>
 
       <div v-else-if="content.banks.length === 0" class="alert alert-ok" role="status">
-        <div class="font-extrabold text-sm">No banks for this selection yet</div>
-        <div class="text-xs text-text-3 mt-0.5">
-          Check back later, or update your course to see available banks.
-        </div>
-        <div class="mt-3 flex flex-col sm:flex-row gap-2">
-          <RouterLink to="/profile" class="btn btn-ghost">Change course</RouterLink>
-          <RouterLink to="/practice" class="btn btn-primary">Browse all banks</RouterLink>
-        </div>
+        No practice banks yet for your current selection. Check back later or try a different course.
       </div>
 
       <div v-else class="grid gap-2">
@@ -296,7 +283,7 @@ watch(
           v-for="b in content.banks.slice(0, 4)"
           :key="b.id"
           :to="`/practice/${b.id}`"
-          class="card card-press card-pad min-h-[72px] focus:outline-none focus:ring-2 focus:ring-accent/40"
+          class="card card-press card-pad"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
