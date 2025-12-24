@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { apiFetch } from '../utils/api'
 
+const norm = (s) => String(s || '').toLowerCase()
+
 export const useContentStore = defineStore('content', {
   state: () => ({
     banks: [],
@@ -13,12 +15,46 @@ export const useContentStore = defineStore('content', {
       pastQuestions: false,
       materials: false,
     },
-    error: null
+    error: null,
+    lastCourseId: '', // helps dashboard / refetch logic if you want it
   }),
+
+  getters: {
+    bankById: (s) => (id) => (s.banks || []).find((b) => b.id === id) || null,
+
+    // Heuristic: prefer "core", else mid-length, else shortest
+    recommendedBank: (s) => {
+      const list = Array.isArray(s.banks) ? s.banks : []
+      if (!list.length) return null
+
+      const core = list.find((b) => norm(b.title).includes('core'))
+      if (core) return core
+
+      const mid = list
+        .filter((b) => {
+          const n = Number(b.questionCount ?? b.questions?.length ?? 0)
+          return n >= 20 && n <= 40
+        })
+        .sort((a, b) => {
+          const na = Number(a.questionCount ?? a.questions?.length ?? 0)
+          const nb = Number(b.questionCount ?? b.questions?.length ?? 0)
+          return na - nb
+        })[0]
+      if (mid) return mid
+
+      return [...list].sort((a, b) => {
+        const na = Number(a.questionCount ?? a.questions?.length ?? 0)
+        const nb = Number(b.questionCount ?? b.questions?.length ?? 0)
+        return na - nb
+      })[0]
+    },
+  },
+
   actions: {
     async fetchBanks({ courseId = '' } = {}) {
       this.loading.banks = true
       this.error = null
+      this.lastCourseId = courseId || ''
       try {
         const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : ''
         const res = await apiFetch(`/banks${qs}`)
@@ -29,12 +65,14 @@ export const useContentStore = defineStore('content', {
         this.loading.banks = false
       }
     },
+
     async fetchBank(bankId) {
       this.loading.bank = true
       this.error = null
       try {
         const res = await apiFetch(`/banks/${encodeURIComponent(bankId)}`)
         const bank = res?.data?.bank || null
+
         // Normalize question shape (backend may send legacy prompt/explain)
         if (bank?.questions?.length) {
           bank.questions = bank.questions.map((q) => ({
@@ -44,6 +82,7 @@ export const useContentStore = defineStore('content', {
             explanation: q.explanation ?? q.explain ?? '',
           }))
         }
+
         this.bank = bank
       } catch (e) {
         this.error = e?.message || 'Failed to load bank'
@@ -52,6 +91,7 @@ export const useContentStore = defineStore('content', {
         this.loading.bank = false
       }
     },
+
     async fetchPastQuestions({ courseId = '' } = {}) {
       this.loading.pastQuestions = true
       this.error = null
@@ -66,6 +106,7 @@ export const useContentStore = defineStore('content', {
         this.loading.pastQuestions = false
       }
     },
+
     async fetchMaterials({ courseId = '' } = {}) {
       this.loading.materials = true
       this.error = null
