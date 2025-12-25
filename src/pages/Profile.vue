@@ -13,6 +13,8 @@ const catalog = useCatalogStore()
 
 const user = computed(() => auth.user || {})
 const profile = computed(() => user.value.profile || {})
+const role = computed(() => user.value.role || 'student')
+const repCourseIds = computed(() => profile.value.repCourseIds || [])
 
 const fullName = ref(user.value.fullName || '')
 const facultyId = ref(profile.value.facultyId || null)
@@ -210,6 +212,44 @@ async function logout() {
       <div class="flex flex-col sm:flex-row gap-2">
         <RouterLink to="/dashboard" class="btn btn-ghost">Back to dashboard</RouterLink>
         <RouterLink to="/saved" class="btn btn-ghost">Saved</RouterLink>
+      </div>
+    </AppCard>
+
+    <AppCard>
+      <div class="h2">Admin & Uploads</div>
+      <p class="sub mt-1">Your current role: <span class="font-bold text-text">{{ role }}</span></p>
+
+      <div class="divider my-4" />
+
+      <div v-if="role === 'admin'" class="flex flex-col sm:flex-row gap-2">
+        <RouterLink to="/admin/rep-requests" class="btn btn-ghost">Review rep requests</RouterLink>
+        <RouterLink to="/uploads" class="btn btn-ghost">Open uploads</RouterLink>
+      </div>
+
+      <div v-else-if="role === 'course_rep'" class="">
+        <div class="alert alert-ok" role="status">
+          You are approved to upload.
+        </div>
+        <div class="mt-3 flex flex-col sm:flex-row gap-2">
+          <RouterLink to="/uploads" class="btn btn-ghost">Open uploads</RouterLink>
+          <RouterLink to="/past-questions" class="btn btn-ghost">View past questions</RouterLink>
+        </div>
+        <div class="mt-4">
+          <div class="text-xs text-text-3 mb-2">Assigned courses</div>
+          <div v-if="repCourseIds.length" class="flex flex-wrap gap-2">
+            <span v-for="cid in repCourseIds" :key="cid" class="badge">{{ cid }}</span>
+          </div>
+          <div v-else class="sub">No assigned courses found. Ask an admin to assign courses to your account.</div>
+        </div>
+      </div>
+
+      <div v-else>
+        <div class="alert alert-ok" role="status">
+          Want to help your department? Request course rep access to upload past questions and materials.
+        </div>
+        <div class="mt-3 flex flex-col sm:flex-row gap-2">
+          <RouterLink to="/rep/request" class="btn btn-ghost">Request course rep access</RouterLink>
+        </div>
       </div>
     </AppCard>
   </div>

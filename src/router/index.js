@@ -12,6 +12,11 @@ import Materials from '../pages/Materials.vue'
 import Practice from '../pages/Practice.vue'
 import Profile from '../pages/Profile.vue'
 
+// Admin + uploads
+import RepRequest from '../pages/RepRequest.vue'
+import Uploads from '../pages/Uploads.vue'
+import AdminRepRequests from '../pages/AdminRepRequests.vue'
+
 // ✅ Practice home (so /practice is a real page)
 import PracticeHome from '../pages/PracticeHome.vue'
 
@@ -45,6 +50,13 @@ const routes = [
       { path: 'saved', component: Saved, meta: { title: 'Saved' } },
 
       { path: 'profile', component: Profile, meta: { title: 'Profile' } },
+
+      // Course rep onboarding + uploads
+      { path: 'rep/request', component: RepRequest, meta: { title: 'Course Rep Request' } },
+      { path: 'uploads', component: Uploads, meta: { title: 'Uploads', roles: ['admin', 'course_rep'] } },
+
+      // Admin
+      { path: 'admin/rep-requests', component: AdminRepRequests, meta: { title: 'Rep Requests', roles: ['admin'] } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
@@ -65,6 +77,13 @@ router.beforeEach((to) => {
 
   if (needsAuth && !auth.isAuthed) return '/auth/login'
   if (auth.isAuthed && auth.needsOnboarding && to.path !== '/onboarding') return '/onboarding'
+
+  // Role-based guard
+  const roles = to.meta?.roles
+  if (roles && Array.isArray(roles)) {
+    const r = auth.user?.role || 'student'
+    if (!roles.includes(r)) return '/dashboard'
+  }
   return true
 })
 
