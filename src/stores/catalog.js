@@ -5,18 +5,11 @@ export const useCatalogStore = defineStore('catalog', {
   state: () => ({
     faculties: [],
     departments: [],
-
-    // All courses (used across the app for dropdowns/search)
     courses: [],
-
-    // Department+level courses (used for onboarding defaults)
-    deptCourses: [],
-
     loading: {
       faculties: false,
       departments: false,
       courses: false,
-      deptCourses: false,
     },
     error: null,
   }),
@@ -33,7 +26,6 @@ export const useCatalogStore = defineStore('catalog', {
         this.loading.faculties = false
       }
     },
-
     async fetchDepartments({ facultyId = '' } = {}) {
       this.error = null
       this.loading.departments = true
@@ -47,11 +39,6 @@ export const useCatalogStore = defineStore('catalog', {
         this.loading.departments = false
       }
     },
-
-    /**
-     * Fetch courses for general app usage.
-     * When called without filters, it returns the full course catalog.
-     */
     async fetchCourses({ departmentId = '', level = 0 } = {}) {
       this.error = null
       this.loading.courses = true
@@ -68,28 +55,6 @@ export const useCatalogStore = defineStore('catalog', {
         this.loading.courses = false
       }
     },
-
-    /**
-     * Fetch department+level courses used as the user's default course set.
-     * Does NOT overwrite the full catalog list in `courses`.
-     */
-    async fetchDeptCourses({ departmentId = '', level = 0 } = {}) {
-      this.error = null
-      this.loading.deptCourses = true
-      try {
-        const params = new URLSearchParams()
-        if (departmentId) params.set('departmentId', departmentId)
-        if (level) params.set('level', String(level))
-        const qs = params.toString() ? `?${params}` : ''
-        const res = await apiFetch(`/catalog/courses${qs}`)
-        this.deptCourses = res?.data?.courses || []
-      } catch (e) {
-        this.error = e?.message || 'Failed to load department courses'
-      } finally {
-        this.loading.deptCourses = false
-      }
-    },
-
     // convenience: initial load
     async bootstrap() {
       if (this.faculties.length) return
