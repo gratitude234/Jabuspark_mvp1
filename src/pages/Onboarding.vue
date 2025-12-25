@@ -14,12 +14,14 @@ const catalog = useCatalogStore()
 const facultyId = ref(auth.user?.profile?.facultyId || null)
 const departmentId = ref(auth.user?.profile?.departmentId || null)
 const level = ref(auth.user?.profile?.level || 200)
-const pickedCourseIds = ref([...(auth.user?.profile?.courseIds || [])])
+
+// Extra (carryover/electives) picked by the user
+const extraCourseIds = ref([])
 
 const busy = ref(false)
 const error = ref('')
 
-// Course search
+// Carryover search
 const courseQuery = ref('')
 
 const levelOptions = [
@@ -39,67 +41,56 @@ const departmentOptions = computed(() =>
   (catalog.departments || []).map(d => ({ value: d.id, label: d.name }))
 )
 
-const courseOptions = computed(() =>
-  (catalog.courses || []).map(c => ({
-    id: c.id,
-    code: c.code,
-    title: c.title,
-    level: c.level,
-    label: `${c.code} — ${c.title}${c.level ? ` (${c.level})` : ''}`,
-  }))
-)
+// Department+level default courses (auto-included)
+const baseCourses = computed(() => catalog.deptCourses || [])
+const baseCourseIds = computed(() => baseCourses.value.map(c => c.id))
 
-const filteredCourseOptions = computed(() => {
-  const q = courseQuery.value.trim().toLowerCase()
-  if (!q) return courseOptions.value
-  return courseOptions.value.filter(c =>
-    `${c.code} ${c.title} ${c.label}`.toLowerCase().includes(q)
-  )
+const selectedCourseIds = computed(() => {
+  const set = new Set([...baseCourseIds.value, ...extraCourseIds.value])
+  return [...set]
 })
 
-const selectedCount = computed(() => pickedCourseIds.value.length)
+const selectedExtras = computed(() => {
+  const base = new Set(baseCourseIds.value)
+  const ids = extraCourseIds.value.filter(id => !base.has(id))
+  const byId = new Map((catalog.courses || []).map(c => [c.id, c]))
+  return ids.map(id => byId.get(id)).filter(Boolean)
+})
 
-const departmentDisabled = computed(() =>
-  !facultyId.value || catalog.loading?.departments || busy.value
-)
+const extraOptions = computed(() => {
+  const q = courseQuery.value.trim().toLowerCase()
+  const base = new Set(baseCourseIds.value)
+  const selected = new Set(selectedCourseIds.value)
 
-const coursesEnabled = computed(() =>
-  Boolean(departmentId.value && level.value) && !catalog.loading?.courses
-)
+  // only show courses not in base + not already selected
+  let list = (catalog.courses || []).filter(c => !base.has(c.id) && !selected.has(c.id))
+
+  if (!q) return list.slice(0, 20)
+
+  list = list.filter(c => (`${c.code} ${c.title}`.toLowerCase().includes(q)))
+  return list.slice(0, 20)
+})
 
 const canContinue = computed(() =>
   Boolean(facultyId.value && departmentId.value && level.value) && !busy.value
 )
 
-function toggleCourse(id) {
-  const idx = pickedCourseIds.value.indexOf(id)
-  if (idx >= 0) pickedCourseIds.value.splice(idx, 1)
-  else pickedCourseIds.value.push(id)
+function addExtraCourse(id) {
+  if (!id) return
+  if (extraCourseIds.value.includes(id)) return
+  extraCourseIds.value.push(id)
 }
 
-function clearCourses() {
-  pickedCourseIds.value = []
-}
-
-function toggleAllShown() {
-  const shownIds = filteredCourseOptions.value.map(c => c.id)
-  if (shownIds.length === 0) return
-
-  const allSelected = shownIds.every(id => pickedCourseIds.value.includes(id))
-  if (allSelected) {
-    pickedCourseIds.value = pickedCourseIds.value.filter(id => !shownIds.includes(id))
-  } else {
-    const set = new Set(pickedCourseIds.value)
-    shownIds.forEach(id => set.add(id))
-    pickedCourseIds.value = [...set]
-  }
+function removeExtraCourse(id) {
+  extraCourseIds.value = extraCourseIds.value.filter(x => x !== id)
 }
 
 watch(facultyId, async (next) => {
   error.value = ''
   departmentId.value = null
-  pickedCourseIds.value = []
+  extraCourseIds.value = []
   courseQuery.value = ''
+  catalog.deptCourses = []
 
   if (!next) return
   await catalog.fetchDepartments({ facultyId: next })
@@ -107,35 +98,43 @@ watch(facultyId, async (next) => {
 
 watch([departmentId, level], async ([dept, lvl]) => {
   error.value = ''
-  pickedCourseIds.value = []
+  extraCourseIds.value = []
   courseQuery.value = ''
+  catalog.deptCourses = []
 
   if (!dept) return
-  await catalog.fetchCourses({ departmentId: dept, level: Number(lvl) || 0 })
+  await catalog.fetchDeptCourses({ departmentId: dept, level: Number(lvl) || 0 })
 })
 
 onMounted(async () => {
   error.value = ''
   await catalog.bootstrap()
 
+  // Load the full course catalog for carryover search
+  await catalog.fetchCourses()
+
   if (facultyId.value) {
     await catalog.fetchDepartments({ facultyId: facultyId.value })
   }
 
   if (departmentId.value) {
-    await catalog.fetchCourses({
+    await catalog.fetchDeptCourses({
       departmentId: departmentId.value,
       level: Number(level.value) || 0,
     })
   }
 })
 
-async function save({ skipCourses = false } = {}) {
+async function save() {
   error.value = ''
 
   if (!facultyId.value) return (error.value = 'Choose a faculty to continue.')
   if (!departmentId.value) return (error.value = 'Choose a department to continue.')
   if (!level.value) return (error.value = 'Choose your level to continue.')
+
+  if (baseCourseIds.value.length === 0) {
+    return (error.value = 'No default courses found for your department/level yet. Ask an admin to add them.')
+  }
 
   busy.value = true
   try {
@@ -143,7 +142,8 @@ async function save({ skipCourses = false } = {}) {
       facultyId: facultyId.value,
       departmentId: departmentId.value,
       level: Number(level.value),
-      courseIds: skipCourses ? [] : pickedCourseIds.value,
+      // Always include all base courses + any carryovers
+      courseIds: selectedCourseIds.value,
     })
 
     router.push('/dashboard')
@@ -158,28 +158,17 @@ async function save({ skipCourses = false } = {}) {
 <template>
   <div class="page">
     <AppCard class="max-w-3xl mx-auto">
-      <div class="text-xs text-text-3">Step 1 of 2</div>
+      <div class="text-xs text-text-3">Onboarding</div>
       <div class="h1 mt-1">Set up your study profile</div>
       <p class="sub mt-2">
-        This helps JabuSpark show the right materials and practice banks.
+        We’ll automatically add all courses for your <b>department</b> and <b>level</b>. If you have carryovers, you can add extra courses too.
       </p>
 
       <div class="grid gap-4 mt-6 sm:grid-cols-3">
         <div class="sm:col-span-1">
           <label class="label">Faculty</label>
-          <AppSelect
-            v-model="facultyId"
-            :options="facultyOptions"
-            placeholder="Select faculty…"
-          />
-          <p
-            v-if="catalog.loading?.faculties"
-            class="help"
-            role="status"
-            aria-live="polite"
-          >
-            Loading faculties…
-          </p>
+          <AppSelect v-model="facultyId" :options="facultyOptions" placeholder="Select faculty…" />
+          <p v-if="catalog.loading?.faculties" class="help" role="status" aria-live="polite">Loading faculties…</p>
         </div>
 
         <div class="sm:col-span-1">
@@ -188,26 +177,15 @@ async function save({ skipCourses = false } = {}) {
             v-model="departmentId"
             :options="departmentOptions"
             placeholder="Select department…"
-            :disabled="departmentDisabled"
+            :disabled="!facultyId || catalog.loading?.departments || busy"
           />
           <p v-if="!facultyId" class="help">Choose a faculty first.</p>
-          <p
-            v-else-if="catalog.loading?.departments"
-            class="help"
-            role="status"
-            aria-live="polite"
-          >
-            Loading departments…
-          </p>
+          <p v-else-if="catalog.loading?.departments" class="help" role="status" aria-live="polite">Loading departments…</p>
         </div>
 
         <div class="sm:col-span-1">
           <label class="label">Level</label>
-          <AppSelect
-            v-model="level"
-            :options="levelOptions"
-            placeholder="Select level…"
-          />
+          <AppSelect v-model="level" :options="levelOptions" placeholder="Select level…" />
         </div>
       </div>
 
@@ -215,87 +193,98 @@ async function save({ skipCourses = false } = {}) {
 
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="h2">Courses (optional)</div>
-          <p class="sub mt-1">Pick now or skip and add them later in Profile.</p>
+          <div class="h2">Your department courses</div>
+          <p class="sub mt-1">These are auto-added based on your department and level.</p>
         </div>
-
         <div class="text-right">
-          <div class="text-xs text-text-3">Selected</div>
-          <div class="text-sm font-semibold">{{ selectedCount }}</div>
+          <div class="text-xs text-text-3">Auto-added</div>
+          <div class="text-sm font-semibold">{{ baseCourseIds.length }}</div>
         </div>
       </div>
 
       <div class="mt-3">
         <div v-if="!departmentId" class="alert alert-ok" role="status">
-          Select a department (and level) to load courses.
+          Select a department and level to load your default courses.
         </div>
 
-        <div
-          v-else-if="catalog.loading?.courses"
-          class="sub"
-          role="status"
-          aria-live="polite"
-        >
+        <div v-else-if="catalog.loading?.deptCourses" class="sub" role="status" aria-live="polite">
           Loading courses…
         </div>
 
-        <div v-else>
-          <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between mb-3">
-            <input
-              v-model="courseQuery"
-              class="ui-input w-full sm:max-w-sm"
-              type="text"
-              placeholder="Search courses (code or title)…"
-              :disabled="!coursesEnabled || busy"
-            />
+        <div v-else-if="baseCourses.length === 0" class="alert alert-danger" role="status">
+          No courses found for this department/level yet.
+        </div>
 
-            <div class="flex gap-2">
-              <button
-                type="button"
-                class="ui-btn ui-btn-ghost"
-                :disabled="!filteredCourseOptions.length || busy"
-                @click="toggleAllShown"
-              >
-                Toggle all shown
-              </button>
-              <button
-                type="button"
-                class="ui-btn ui-btn-ghost"
-                :disabled="selectedCount === 0 || busy"
-                @click="clearCourses"
-              >
-                Clear
-              </button>
+        <div v-else class="grid gap-2 sm:grid-cols-2">
+          <div
+            v-for="c in baseCourses"
+            :key="c.id"
+            class="card card-pad text-left border border-border/70 bg-surface/60"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-sm font-semibold">{{ c.code }} — {{ c.title }} ({{ c.level }})</div>
+              <span class="text-xs px-2 py-1 rounded-full bg-accent/10 text-accent">Included</span>
             </div>
+            <div class="text-xs text-text-3 mt-1">Auto-added (locked)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider my-6"></div>
+
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="h2">Carryovers / extra courses</div>
+          <p class="sub mt-1">Add any other courses you want access to.</p>
+        </div>
+        <div class="text-right">
+          <div class="text-xs text-text-3">Extras</div>
+          <div class="text-sm font-semibold">{{ selectedExtras.length }}</div>
+        </div>
+      </div>
+
+      <div class="mt-3">
+        <input
+          v-model="courseQuery"
+          class="input w-full"
+          type="text"
+          placeholder="Search course code or title…"
+          :disabled="busy"
+        />
+
+        <div v-if="selectedExtras.length" class="mt-3 flex flex-wrap gap-2">
+          <button
+            v-for="c in selectedExtras"
+            :key="c.id"
+            type="button"
+            class="pill"
+            @click="removeExtraCourse(c.id)"
+            :disabled="busy"
+            title="Remove"
+          >
+            {{ c.code }} <span class="opacity-70">×</span>
+          </button>
+        </div>
+
+        <div class="mt-3">
+          <div v-if="extraOptions.length === 0" class="help">
+            {{ courseQuery ? 'No courses match your search.' : 'Search to add carryover courses.' }}
           </div>
 
-          <div v-if="filteredCourseOptions.length === 0" class="alert alert-ok" role="status">
-            No courses match your search.
-          </div>
-
-          <div v-else class="grid gap-2 sm:grid-cols-2">
+          <div v-else class="grid gap-2 sm:grid-cols-2 mt-2">
             <button
-              v-for="c in filteredCourseOptions"
+              v-for="c in extraOptions"
               :key="c.id"
               type="button"
               class="card card-press card-pad text-left"
-              :class="pickedCourseIds.includes(c.id) ? 'ui-selected' : ''"
-              :aria-pressed="pickedCourseIds.includes(c.id)"
               :disabled="busy"
-              @click="toggleCourse(c.id)"
+              @click="addExtraCourse(c.id)"
             >
               <div class="flex items-center justify-between gap-2">
-                <div class="text-sm font-semibold">{{ c.label }}</div>
-                <span
-                  v-if="pickedCourseIds.includes(c.id)"
-                  class="text-xs px-2 py-1 rounded-full bg-accent/10 text-accent"
-                >
-                  Selected
-                </span>
+                <div class="text-sm font-semibold">{{ c.code }} — {{ c.title }} ({{ c.level }})</div>
+                <span class="badge">+</span>
               </div>
-              <div class="text-xs text-text-3 mt-1">
-                {{ pickedCourseIds.includes(c.id) ? 'Tap to unselect' : 'Tap to select' }}
-              </div>
+              <div class="text-xs text-text-3 mt-1">Tap to add</div>
             </button>
           </div>
         </div>
@@ -307,59 +296,23 @@ async function save({ skipCourses = false } = {}) {
 
       <div class="mt-6 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
         <div class="text-xs text-text-3">
-          You can change this later in your profile.
+          Total courses: <b>{{ selectedCourseIds.length }}</b> (department + extras)
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <button
-            type="button"
-            class="ui-btn ui-btn-ghost w-full sm:w-auto"
-            :disabled="busy"
-            @click="save({ skipCourses: true })"
-          >
-            Pick courses later
-          </button>
-
-          <AppButton class="w-full sm:w-auto" :disabled="!canContinue" @click="save()">
-            <span v-if="!busy">Continue</span>
-            <span v-else>Saving…</span>
-          </AppButton>
-        </div>
+        <AppButton class="w-full sm:w-auto" :disabled="!canContinue" @click="save">
+          <span v-if="!busy">Finish setup</span>
+          <span v-else>Saving…</span>
+        </AppButton>
       </div>
     </AppCard>
   </div>
 </template>
 
 <style scoped>
-/* Minimal “nice defaults” that won't fight your design system.
-   Remove if you already have equivalent utilities. */
-
-.ui-input {
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 0.75rem;
-  padding: 0.6rem 0.75rem;
-  outline: none;
-}
-.ui-input:focus {
-  border-color: rgba(0, 0, 0, 0.3);
-}
-
-.ui-btn {
-  border-radius: 0.75rem;
-  padding: 0.55rem 0.8rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-}
-.ui-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.ui-btn-ghost {
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  background: transparent;
-}
-
-.ui-selected {
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.18);
+.pill {
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 9999px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
 }
 </style>
