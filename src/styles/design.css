@@ -81,6 +81,7 @@
 
   /* ---------- Chips / badges ---------- */
   .chip { @apply inline-flex items-center gap-2 rounded-full border border-stroke/60 px-3 py-1.5 text-xs text-text-2 bg-white/[0.03]; }
+  .pill { @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold; }
   .badge { @apply inline-flex items-center rounded-full border border-stroke/60 px-2.5 py-1 text-xs font-semibold bg-white/[0.03] text-text-2; }
 
   /* ---------- Alerts ---------- */
