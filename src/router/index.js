@@ -16,6 +16,8 @@ import Profile from '../pages/Profile.vue'
 import RepRequest from '../pages/RepRequest.vue'
 import Uploads from '../pages/Uploads.vue'
 import AdminRepRequests from '../pages/AdminRepRequests.vue'
+import AdminCourseReps from '../pages/AdminCourseReps.vue'
+import AdminUploadLogs from '../pages/AdminUploadLogs.vue'
 
 // ✅ Practice home (so /practice is a real page)
 import PracticeHome from '../pages/PracticeHome.vue'
@@ -57,6 +59,8 @@ const routes = [
 
       // Admin
       { path: 'admin/rep-requests', component: AdminRepRequests, meta: { title: 'Rep Requests', roles: ['admin'] } },
+      { path: 'admin/course-reps', component: AdminCourseReps, meta: { title: 'Manage Course Reps', roles: ['admin'] } },
+      { path: 'admin/upload-logs', component: AdminUploadLogs, meta: { title: 'Upload Audit Log', roles: ['admin'] } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },

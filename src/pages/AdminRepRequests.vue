@@ -27,13 +27,24 @@ async function load() {
   ok.value = ''
   try {
     const res = await apiFetch(`/admin/rep-requests?status=${encodeURIComponent(status.value)}`)
-    items.value = res?.data?.requests || []
+    items.value = (res?.data?.requests || []).map(r => ({
+      ...r,
+      _adminNote: r.adminNote || '',
+      _courseIds: (r.courses || []).map(c => c.id)
+    }))
   } catch (e) {
     error.value = e?.message || 'Failed to load requests'
     items.value = []
   } finally {
     loading.value = false
   }
+}
+
+function toggleCourse(r, cid) {
+  const set = new Set(r._courseIds || [])
+  if (set.has(cid)) set.delete(cid)
+  else set.add(cid)
+  r._courseIds = Array.from(set)
 }
 
 const courseMap = computed(() => {
@@ -143,19 +154,44 @@ onMounted(async () => {
 
           <div class="mt-3">
             <div class="text-xs text-text-3 mb-1">Courses</div>
-            <div class="flex flex-wrap gap-2">
-              <span v-for="c in r.courses" :key="c.id" class="badge">{{ courseLabel(c) }}</span>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <label v-for="c in r.courses" :key="c.id" class="flex items-center gap-2 text-sm text-text-2">
+                <input
+                  v-if="status === 'pending'"
+                  type="checkbox"
+                  class="accent-accent"
+                  :checked="(r._courseIds || []).includes(c.id)"
+                  @change="toggleCourse(r, c.id)"
+                />
+                <span class="badge">{{ courseLabel(c) }}</span>
+              </label>
             </div>
+            <p v-if="status === 'pending'" class="help mt-2">Uncheck courses to restrict what the rep can upload.</p>
           </div>
 
           <div v-if="r.proofUrl" class="mt-3">
             <div class="text-xs text-text-3 mb-1">Proof</div>
-            <a class="link" :href="r.proofUrl" target="_blank" rel="noreferrer">Open proof link</a>
+            <a class="text-accent underline" :href="r.proofUrl" target="_blank" rel="noreferrer">Open proof link</a>
           </div>
 
           <div v-if="status === 'pending'" class="mt-4 flex flex-col sm:flex-row gap-2">
-            <AppButton class="sm:w-auto" @click="approve(r.id, r.courses.map(x => x.id))">Approve</AppButton>
-            <button class="btn btn-ghost sm:w-auto" @click="deny(r.id)">Deny</button>
+            <div class="w-full">
+              <label class="label">Admin note (optional)</label>
+              <textarea
+                v-model="r._adminNote"
+                class="input min-h-[90px]"
+                placeholder="e.g. Upload for GST 211 only."
+              ></textarea>
+            </div>
+            <div class="flex flex-col gap-2 sm:w-auto sm:min-w-[220px]">
+              <AppButton class="sm:w-auto" @click="approve(r.id, r._courseIds, r._adminNote)">Approve</AppButton>
+              <button class="btn btn-ghost sm:w-auto" @click="deny(r.id, r._adminNote)">Deny</button>
+            </div>
+          </div>
+
+          <div v-else-if="r.adminNote" class="mt-3 alert alert-ok">
+            <div class="text-xs text-text-3 mb-1">Admin note</div>
+            {{ r.adminNote }}
           </div>
         </div>
       </div>

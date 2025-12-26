@@ -14,13 +14,17 @@ const catalog = useCatalogStore()
 const user = computed(() => auth.user || {})
 const profile = computed(() => user.value.profile || {})
 const role = computed(() => user.value.role || 'student')
-const repCourseIds = computed(() => profile.value.repCourseIds || [])
 
 const fullName = ref(user.value.fullName || '')
 const facultyId = ref(profile.value.facultyId || null)
 const departmentId = ref(profile.value.departmentId || null)
 const level = ref(profile.value.level || 200)
+
+// Stored selection in DB (base + extras)
 const pickedCourseIds = ref([...(profile.value.courseIds || [])])
+
+// Carryover search
+const courseQuery = ref('')
 
 const busy = ref(false)
 const error = ref('')
@@ -38,34 +42,83 @@ const levelOptions = [
 const facultyOptions = computed(() => (catalog.faculties || []).map(f => ({ value: f.id, label: f.name })))
 const departmentOptions = computed(() => (catalog.departments || []).map(d => ({ value: d.id, label: d.name })))
 
-const courseOptions = computed(() => (catalog.courses || []).map(c => ({
-  id: c.id,
-  label: `${c.code} — ${c.title} (${c.level})`
-})))
+const baseCourses = computed(() => catalog.deptCourses || [])
+const baseCourseIds = computed(() => baseCourses.value.map(c => c.id))
 
-function toggleCourse(id) {
-  const i = pickedCourseIds.value.indexOf(id)
-  if (i >= 0) pickedCourseIds.value.splice(i, 1)
-  else pickedCourseIds.value.push(id)
+// Track previous base ids so we can preserve extras if department/level changes
+const prevBaseIds = ref([])
+
+const selectedCourseIds = computed(() => {
+  const set = new Set([...baseCourseIds.value, ...pickedCourseIds.value])
+  return [...set]
+})
+
+const selectedExtras = computed(() => {
+  const base = new Set(baseCourseIds.value)
+  const byId = new Map((catalog.courses || []).map(c => [c.id, c]))
+  const extras = pickedCourseIds.value.filter(id => !base.has(id))
+  return extras.map(id => byId.get(id)).filter(Boolean)
+})
+
+const extraOptions = computed(() => {
+  const q = courseQuery.value.trim().toLowerCase()
+  const base = new Set(baseCourseIds.value)
+  const selected = new Set(selectedCourseIds.value)
+
+  let list = (catalog.courses || []).filter(c => !base.has(c.id) && !selected.has(c.id))
+  if (!q) return list.slice(0, 20)
+
+  list = list.filter(c => (`${c.code} ${c.title}`.toLowerCase().includes(q)))
+  return list.slice(0, 20)
+})
+
+function addExtraCourse(id) {
+  if (!id) return
+  if (pickedCourseIds.value.includes(id)) return
+  pickedCourseIds.value.push(id)
+}
+
+function removeExtraCourse(id) {
+  pickedCourseIds.value = pickedCourseIds.value.filter(x => x !== id)
+}
+
+async function refreshDeptCourses() {
+  catalog.deptCourses = []
+  if (!departmentId.value) return
+  await catalog.fetchDeptCourses({ departmentId: departmentId.value, level: Number(level.value) || 0 })
 }
 
 watch(facultyId, async (next) => {
   departmentId.value = null
-  pickedCourseIds.value = []
+  courseQuery.value = ''
+  savedOk.value = false
   if (!next) return
   await catalog.fetchDepartments({ facultyId: next })
 })
 
-watch([departmentId, level], async ([dept, lvl]) => {
-  pickedCourseIds.value = []
-  if (!dept) return
-  await catalog.fetchCourses({ departmentId: dept, level: Number(lvl) || 0 })
+watch([departmentId, level], async () => {
+  savedOk.value = false
+  courseQuery.value = ''
+
+  const oldBase = new Set(prevBaseIds.value)
+  const oldExtras = pickedCourseIds.value.filter(id => !oldBase.has(id))
+
+  await refreshDeptCourses()
+
+  // Ensure base courses are always included, preserve extras
+  const set = new Set([...baseCourseIds.value, ...oldExtras])
+  pickedCourseIds.value = [...set]
+  prevBaseIds.value = [...baseCourseIds.value]
 })
 
 onMounted(async () => {
   await catalog.bootstrap()
+  await catalog.fetchCourses() // full catalog for search + course labels
+
   if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
-  if (departmentId.value) await catalog.fetchCourses({ departmentId: departmentId.value, level: Number(level.value) || 0 })
+  await refreshDeptCourses()
+
+  prevBaseIds.value = [...baseCourseIds.value]
 })
 
 async function save() {
@@ -77,16 +130,17 @@ async function save() {
   if (!facultyId.value) return (error.value = 'Choose a faculty to continue.')
   if (!departmentId.value) return (error.value = 'Choose a department to continue.')
   if (!level.value) return (error.value = 'Choose your level to continue.')
+  if (baseCourseIds.value.length === 0) return (error.value = 'No default courses found for your department/level yet.')
 
   busy.value = true
   try {
-    // Keep current auth logic: update profile + name
     await auth.updateProfile({
       fullName: n,
       facultyId: facultyId.value,
       departmentId: departmentId.value,
       level: Number(level.value),
-      courseIds: pickedCourseIds.value,
+      // Store base + extras (server will also enforce base)
+      courseIds: selectedCourseIds.value,
     })
     savedOk.value = true
   } catch (e) {
@@ -138,8 +192,48 @@ async function logout() {
     </AppCard>
 
     <AppCard>
+      <div class="row">
+        <div>
+          <div class="h2">Uploads & course reps</div>
+          <p class="sub mt-1">Request course-rep access (if you upload content) or manage reps (admin).</p>
+        </div>
+      </div>
+
+      <div class="divider my-4" />
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Course rep status</div>
+          <p class="sub mt-1">View your request status (pending/approved/denied) and assigned courses.</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <RouterLink to="/rep/request" class="btn btn-ghost">Course rep request</RouterLink>
+            <RouterLink v-if="role === 'course_rep' || role === 'admin'" to="/uploads" class="btn">Open uploads</RouterLink>
+          </div>
+        </div>
+
+        <div v-if="role === 'admin'" class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Admin tools</div>
+          <p class="sub mt-1">Review requests, manage reps and audit upload changes.</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <RouterLink to="/admin/rep-requests" class="btn btn-ghost">Rep requests</RouterLink>
+            <RouterLink to="/admin/course-reps" class="btn btn-ghost">Manage reps</RouterLink>
+            <RouterLink to="/admin/upload-logs" class="btn btn-ghost">Upload audit log</RouterLink>
+          </div>
+        </div>
+
+        <div v-else class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Want to help your department?</div>
+          <p class="sub mt-1">If you are a class rep or department rep, request course-rep access and upload past questions/materials.</p>
+          <div class="mt-3">
+            <RouterLink to="/rep/request" class="btn btn-ghost">Request access</RouterLink>
+          </div>
+        </div>
+      </div>
+    </AppCard>
+
+    <AppCard>
       <div class="h2">Study settings</div>
-      <p class="sub mt-1">This controls what content you see by default.</p>
+      <p class="sub mt-1">These control what content you see by default.</p>
 
       <div class="divider my-4" />
 
@@ -164,41 +258,92 @@ async function logout() {
 
       <div class="divider my-6" />
 
-      <div class="row">
+      <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="h2">Courses</div>
-          <p class="sub mt-1">Choose courses to personalise practice and filters.</p>
+          <div class="h2">Department courses (auto)</div>
+          <p class="sub mt-1">Auto-added based on your department and level.</p>
         </div>
-        <span class="badge">{{ pickedCourseIds.length }} selected</span>
+        <span class="badge">{{ baseCourseIds.length }}</span>
       </div>
 
       <div class="mt-3">
-        <p v-if="catalog.loading.courses" class="sub">Loading courses…</p>
-        <div v-else-if="courseOptions.length === 0" class="alert alert-ok" role="status">
-          Select a department (and level) to load courses.
+        <p v-if="catalog.loading.deptCourses" class="sub">Loading…</p>
+        <div v-else-if="!departmentId" class="alert alert-ok" role="status">
+          Select a department and level to load your default courses.
+        </div>
+        <div v-else-if="baseCourses.length === 0" class="alert alert-danger" role="status">
+          No courses found for this department/level yet.
         </div>
 
         <div v-else class="grid gap-2 sm:grid-cols-2">
+          <div v-for="c in baseCourses" :key="c.id" class="card card-pad text-left border border-border/70 bg-surface/60">
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-sm font-semibold">{{ c.code }} — {{ c.title }} ({{ c.level }})</div>
+              <span class="text-xs px-2 py-1 rounded-full bg-accent/10 text-accent">Included</span>
+            </div>
+            <div class="text-xs text-text-3 mt-1">Auto-added (locked)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider my-6" />
+
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="h2">Carryovers / extra courses</div>
+          <p class="sub mt-1">Add any other courses you want access to.</p>
+        </div>
+        <span class="badge">{{ selectedExtras.length }}</span>
+      </div>
+
+      <div class="mt-3">
+        <input
+          v-model="courseQuery"
+          class="input w-full"
+          type="text"
+          placeholder="Search course code or title…"
+          :disabled="busy"
+        />
+
+        <div v-if="selectedExtras.length" class="mt-3 flex flex-wrap gap-2">
           <button
-            v-for="c in courseOptions"
+            v-for="c in selectedExtras"
             :key="c.id"
             type="button"
-            class="card card-press card-pad text-left"
-            :class="pickedCourseIds.includes(c.id) ? 'ring-2 ring-accent/50' : ''"
-            @click="toggleCourse(c.id)"
+            class="pill"
+            @click="removeExtraCourse(c.id)"
+            :disabled="busy"
+            title="Remove"
           >
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="text-sm font-extrabold truncate">{{ c.label }}</div>
-                <div class="text-xs text-text-3 mt-1">
-                  {{ pickedCourseIds.includes(c.id) ? 'Selected' : 'Tap to select' }}
-                </div>
-              </div>
-              <span class="badge" :class="pickedCourseIds.includes(c.id) ? 'bg-accent/15 border-accent/30 text-text' : ''">
-                {{ pickedCourseIds.includes(c.id) ? '✓' : '+' }}
-              </span>
-            </div>
+            {{ c.code }} <span class="opacity-70">×</span>
           </button>
+        </div>
+
+        <div class="mt-3">
+          <div v-if="extraOptions.length === 0" class="help">
+            {{ courseQuery ? 'No courses match your search.' : 'Search to add carryover courses.' }}
+          </div>
+
+          <div v-else class="grid gap-2 sm:grid-cols-2 mt-2">
+            <button
+              v-for="c in extraOptions"
+              :key="c.id"
+              type="button"
+              class="card card-press card-pad text-left"
+              :disabled="busy"
+              @click="addExtraCourse(c.id)"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-sm font-semibold">{{ c.code }} — {{ c.title }} ({{ c.level }})</div>
+                <span class="badge">+</span>
+              </div>
+              <div class="text-xs text-text-3 mt-1">Tap to add</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-4 text-xs text-text-3">
+          Total courses: <b>{{ selectedCourseIds.length }}</b> (department + extras)
         </div>
       </div>
     </AppCard>
@@ -212,61 +357,16 @@ async function logout() {
       <div class="flex flex-col sm:flex-row gap-2">
         <RouterLink to="/dashboard" class="btn btn-ghost">Back to dashboard</RouterLink>
         <RouterLink to="/saved" class="btn btn-ghost">Saved</RouterLink>
-        <!-- Make uploader access discoverable without scrolling -->
-        <RouterLink
-          v-if="role === 'student'"
-          to="/rep/request"
-          class="btn btn-ghost"
-        >Become a course rep</RouterLink>
-        <RouterLink
-          v-else-if="role === 'course_rep'"
-          to="/uploads"
-          class="btn btn-ghost"
-        >Uploads</RouterLink>
-        <RouterLink
-          v-else-if="role === 'admin'"
-          to="/admin/rep-requests"
-          class="btn btn-ghost"
-        >Admin requests</RouterLink>
-      </div>
-    </AppCard>
-
-    <AppCard>
-      <div class="h2">Admin & Uploads</div>
-      <p class="sub mt-1">Your current role: <span class="font-bold text-text">{{ role }}</span></p>
-
-      <div class="divider my-4" />
-
-      <div v-if="role === 'admin'" class="flex flex-col sm:flex-row gap-2">
-        <RouterLink to="/admin/rep-requests" class="btn btn-ghost">Review rep requests</RouterLink>
-        <RouterLink to="/uploads" class="btn btn-ghost">Open uploads</RouterLink>
-      </div>
-
-      <div v-else-if="role === 'course_rep'" class="">
-        <div class="alert alert-ok" role="status">
-          You are approved to upload.
-        </div>
-        <div class="mt-3 flex flex-col sm:flex-row gap-2">
-          <RouterLink to="/uploads" class="btn btn-ghost">Open uploads</RouterLink>
-          <RouterLink to="/past-questions" class="btn btn-ghost">View past questions</RouterLink>
-        </div>
-        <div class="mt-4">
-          <div class="text-xs text-text-3 mb-2">Assigned courses</div>
-          <div v-if="repCourseIds.length" class="flex flex-wrap gap-2">
-            <span v-for="cid in repCourseIds" :key="cid" class="badge">{{ cid }}</span>
-          </div>
-          <div v-else class="sub">No assigned courses found. Ask an admin to assign courses to your account.</div>
-        </div>
-      </div>
-
-      <div v-else>
-        <div class="alert alert-ok" role="status">
-          Want to help your department? Request course rep access to upload past questions and materials.
-        </div>
-        <div class="mt-3 flex flex-col sm:flex-row gap-2">
-          <RouterLink to="/rep/request" class="btn btn-ghost">Request course rep access</RouterLink>
-        </div>
       </div>
     </AppCard>
   </div>
 </template>
+
+<style scoped>
+.pill {
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 9999px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+}
+</style>
