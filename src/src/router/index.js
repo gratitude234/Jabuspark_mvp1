@@ -23,6 +23,9 @@ import AdminUploadLogs from '../pages/AdminUploadLogs.vue'
 // ✅ Practice home (so /practice is a real page)
 import PracticeHome from '../pages/PracticeHome.vue'
 
+// Saved wrong questions (spaced repetition)
+import ReviewWrong from '../pages/ReviewWrong.vue'
+
 // ✅ NEW
 import Saved from '../pages/Saved.vue'
 
@@ -47,6 +50,7 @@ const routes = [
 
       // ✅ so nav "/practice" never 404s (until you create PracticeHome)
       { path: 'practice', component: PracticeHome, meta: { title: 'Practice' } },
+      { path: 'review', component: ReviewWrong, meta: { title: 'Saved wrong questions' } },
       { path: 'practice/:bankId', component: Practice, props: true, meta: { title: 'Practice' } },
 
       // ✅ NEW

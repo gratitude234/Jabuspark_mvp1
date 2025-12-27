@@ -13,6 +13,7 @@ const seed = () => ({
     saved: { pastQuestions: [], materials: [], questions: [] },
   },
   answers: {}, // { [bankId]: { answeredIds:[], correctIds:[] } }
+  courseTrend: {}, // { [courseId]: { overall, points, days, since } }
 })
 
 export const useDataStore = defineStore('data', {
@@ -20,6 +21,7 @@ export const useDataStore = defineStore('data', {
     ...seed(),
     loading: {
       progress: false,
+      courseTrend: false,
     },
     error: null,
   }),
@@ -100,6 +102,26 @@ export const useDataStore = defineStore('data', {
       this.answers = next
       storage.set('answers', this.answers)
       return true
+    },
+
+    async fetchCourseTrend({ courseId, days = 14 }) {
+      if (!courseId) return null
+      this.loading.courseTrend = true
+      this.error = null
+      try {
+        const qs = `?courseId=${encodeURIComponent(courseId)}&days=${encodeURIComponent(days)}`
+        const res = await apiFetch(`/practice/course-trend${qs}`)
+        const payload = res?.data || null
+        if (payload) {
+          this.courseTrend = { ...this.courseTrend, [courseId]: payload }
+        }
+        return payload
+      } catch (e) {
+        this.error = e?.message || 'Failed to load course trend'
+        return null
+      } finally {
+        this.loading.courseTrend = false
+      }
     }
   }
 })

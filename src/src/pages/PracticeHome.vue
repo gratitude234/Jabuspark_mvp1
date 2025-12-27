@@ -6,6 +6,7 @@ import { useCatalogStore } from '../stores/catalog'
 import { useContentStore } from '../stores/content'
 import { useDataStore } from '../stores/data'
 import { useAiStore } from '../stores/ai'
+import { apiFetch } from '../utils/api'
 import AppCard from '../components/AppCard.vue'
 import AppInput from '../components/AppInput.vue'
 import AppSelect from '../components/AppSelect.vue'
@@ -22,10 +23,36 @@ const profile = computed(() => auth.user?.profile || {})
 const selectedCourseId = ref(profile.value.courseIds?.[0] || null)
 const query = ref('')
 
+// Practice modes
+const modeShuffle = ref(false)
+const modeTimed = ref(false)
+const modeMinutes = ref(10)
+
 const aiTopic = ref('')
 const aiDifficulty = ref('mixed')
 const aiCount = ref(8)
 const aiError = ref('')
+
+// Saved wrong questions (spaced repetition)
+const wrongTotal = ref(0)
+const wrongDue = ref(0)
+const wrongLoading = ref(false)
+
+async function fetchWrongSummary(courseId) {
+  if (!courseId) { wrongTotal.value = 0; wrongDue.value = 0; return }
+  wrongLoading.value = true
+  try {
+    const res = await apiFetch(`/practice/wrong-summary?courseId=${encodeURIComponent(courseId)}`)
+    wrongTotal.value = Number(res?.totalSaved || 0)
+    wrongDue.value = Number(res?.dueNow || 0)
+  } catch {
+    // If table isn't migrated yet or API fails, don't block practice
+    wrongTotal.value = 0
+    wrongDue.value = 0
+  } finally {
+    wrongLoading.value = false
+  }
+}
 
 const myCourses = computed(() =>
   (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
@@ -34,12 +61,33 @@ const courseOptions = computed(() => myCourses.value.map(c => ({ value: c.id, la
 
 watch(selectedCourseId, async (cid) => {
   await content.fetchBanks({ courseId: cid || '' })
+  if (cid) await data.fetchCourseTrend({ courseId: cid, days: 14 })
+  await fetchWrongSummary(cid)
 })
 
 onMounted(async () => {
   await Promise.allSettled([catalog.fetchCourses(), data.fetchProgress()])
   await content.fetchBanks({ courseId: selectedCourseId.value || '' })
+  if (selectedCourseId.value) await data.fetchCourseTrend({ courseId: selectedCourseId.value, days: 14 })
+  await fetchWrongSummary(selectedCourseId.value)
 })
+
+const trend = computed(() => {
+  const cid = selectedCourseId.value
+  return cid ? (data.courseTrend?.[cid] || null) : null
+})
+
+function bankLink(id) {
+  const parts = []
+  if (modeShuffle.value) parts.push('shuffle=1')
+  if (modeTimed.value) {
+    const mins = Math.max(1, Math.min(60, Number(modeMinutes.value) || 10))
+    parts.push('timed=1')
+    parts.push(`minutes=${encodeURIComponent(String(mins))}`)
+  }
+  const qs = parts.length ? `?${parts.join('&')}` : ''
+  return `/practice/${id}${qs}`
+}
 
 const banks = computed(() => {
   const list = content.banks || []
@@ -107,9 +155,103 @@ async function generateAiBank() {
             placeholder="Search banks…"
           />
         </div>
+
+        <div>
+          <div class="label">Practice modes</div>
+          <div class="seg mt-1 w-full">
+            <button
+              type="button"
+              class="seg-btn w-full"
+              :class="modeShuffle ? 'seg-btn--active' : 'seg-btn--inactive'"
+              @click="modeShuffle = !modeShuffle"
+            >
+              Shuffle
+            </button>
+            <button
+              type="button"
+              class="seg-btn w-full"
+              :class="modeTimed ? 'seg-btn--active' : 'seg-btn--inactive'"
+              @click="modeTimed = !modeTimed"
+            >
+              Timed
+            </button>
+          </div>
+
+          <div v-if="modeTimed" class="mt-2">
+            <label class="help" for="modeMinutes">Minutes</label>
+            <AppInput id="modeMinutes" v-model="modeMinutes" type="number" min="1" max="60" />
+          </div>
+          <p class="help">Modes apply when you open a bank.</p>
+        </div>
+      </div>
+
+      <div v-if="trend" class="mt-4 card card-pad">
+        <div class="row">
+          <div>
+            <div class="h3">Course progress (last {{ trend.days }} days)</div>
+            <p class="help">Accuracy trend based on your practice attempts.</p>
+          </div>
+          <div class="text-right">
+            <div class="text-xl font-extrabold">{{ trend.overall?.accuracy ?? 0 }}%</div>
+            <div class="text-xs text-text-3">{{ trend.overall?.correct ?? 0 }}/{{ trend.overall?.total ?? 0 }}</div>
+          </div>
+        </div>
+
+        <div v-if="trend.points?.length" class="mt-3 flex items-end gap-1 h-12">
+          <div
+            v-for="p in trend.points"
+            :key="p.date"
+            class="flex-1 rounded-xl2 bg-white/10 ring-1 ring-white/10"
+            :style="{ height: Math.max(8, Math.round((p.accuracy || 0) * 0.48)) + 'px' }"
+            :title="p.date + ' • ' + p.accuracy + '% (' + p.correct + '/' + p.total + ')'"
+          />
+        </div>
+        <div v-else class="help mt-2">No attempts yet. Start a bank to build your trend.</div>
       </div>
 
       <div v-if="content.error" class="alert alert-warn mt-4" role="alert">{{ content.error }}</div>
+    </AppCard>
+
+    <!-- Saved wrong questions (spaced repetition) -->
+    <AppCard class="mt-3">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="h2">Saved wrong questions</div>
+          <p class="sub mt-1">Questions you miss are saved so you can review them later (spaced repetition).
+          </p>
+        </div>
+        <div class="flex-1" />
+      </div>
+
+      <div class="mt-3">
+        <div v-if="!selectedCourseId" class="help">Select a course above to see your saved wrong questions for that course.</div>
+        <div v-else class="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div class="flex items-center gap-2">
+            <span class="badge" :title="'Total saved wrong questions'">Saved: {{ wrongTotal }}</span>
+            <span class="badge" :title="'Due for review now'">Due: {{ wrongDue }}</span>
+            <span v-if="wrongLoading" class="text-xs text-text-3">Loading…</span>
+          </div>
+
+          <div class="flex-1" />
+
+          <RouterLink
+            class="btn btn-primary w-full sm:w-auto"
+            :to="`/review?courseId=${encodeURIComponent(selectedCourseId)}`"
+          >
+            Review due
+          </RouterLink>
+          <RouterLink
+            class="btn w-full sm:w-auto"
+            :to="`/review?courseId=${encodeURIComponent(selectedCourseId)}&mode=all`"
+          >
+            View all saved
+          </RouterLink>
+        </div>
+
+        <p v-if="selectedCourseId && wrongTotal === 0" class="help mt-2">
+          You don’t have any saved wrong questions yet. Once you miss a question, it will appear here automatically.
+        </p>
+      </div>
     </AppCard>
 
     <!-- AI Generator -->
@@ -178,7 +320,7 @@ async function generateAiBank() {
       <RouterLink
         v-for="b in banks"
         :key="b.id"
-        :to="`/practice/${b.id}`"
+        :to="bankLink(b.id)"
         class="card card-press card-pad"
       >
         <div class="flex items-start justify-between gap-3">
