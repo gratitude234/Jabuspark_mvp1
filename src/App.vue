@@ -4,13 +4,11 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useDataStore } from './stores/data'
 import { useCatalogStore } from './stores/catalog'
-import { useNotifyStore } from './stores/notify'
 import ToastHost from './components/ToastHost.vue'
 
 const auth = useAuthStore()
 const data = useDataStore()
 const catalog = useCatalogStore()
-const notify = useNotifyStore()
 const router = useRouter()
 
 const toast = ref(null)
@@ -25,7 +23,7 @@ onMounted(async () => {
   await auth.hydrate()
   if (auth.isAuthed) {
     // keep these light; pages can fetch deeper lists as needed
-    await Promise.allSettled([catalog.bootstrap(), data.bootstrap(), notify.bootstrap()])
+    await Promise.allSettled([catalog.bootstrap(), data.bootstrap()])
   }
 })
 

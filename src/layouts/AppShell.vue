@@ -2,12 +2,10 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { useNotifyStore } from '../stores/notify'
 import LogoMark from '../components/LogoMark.vue'
 
 const route = useRoute()
 const auth = useAuthStore()
-const notify = useNotifyStore()
 
 const isMatch = (prefix) => {
   const p = route.path || ''
@@ -15,8 +13,6 @@ const isMatch = (prefix) => {
 }
 
 const title = computed(() => route.meta?.title || 'JabuSpark')
-
-const unread = computed(() => Number(notify.unreadCount || 0))
 
 const navItems = computed(() => [
   { key: 'home', label: 'Home', to: '/dashboard', match: () => isMatch('/dashboard') },
@@ -80,35 +76,6 @@ function iconPath(key) {
 
         <div class="flex items-center gap-2">
           <div class="hidden sm:block text-sm text-text-2">{{ title }}</div>
-
-          <RouterLink
-            to="/announcements"
-            class="icon-btn relative"
-            :class="isMatch('/announcements') ? 'ring-1 ring-white/10 bg-white/[0.06]' : ''"
-            aria-label="Announcements"
-          >
-            <svg
-              class="h-5 w-5"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7" />
-              <path d="M13.73 21a2 2 0 01-3.46 0" />
-            </svg>
-
-            <span
-              v-if="notify.unreadCount > 0"
-              class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-accent text-surface text-[11px] font-bold leading-[18px] text-center"
-              :title="`${notify.unreadCount} unread`"
-            >
-              {{ notify.unreadCount > 99 ? '99+' : notify.unreadCount }}
-            </span>
-          </RouterLink>
 
           <RouterLink
             to="/profile"

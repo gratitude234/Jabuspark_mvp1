@@ -12,10 +12,6 @@ import Materials from '../pages/Materials.vue'
 import Practice from '../pages/Practice.vue'
 import Profile from '../pages/Profile.vue'
 
-// Announcements
-import Announcements from '../pages/Announcements.vue'
-import AdminAnnouncements from '../pages/AdminAnnouncements.vue'
-
 // Admin + uploads
 import RepRequest from '../pages/RepRequest.vue'
 import Uploads from '../pages/Uploads.vue'
@@ -55,8 +51,6 @@ const routes = [
       // ✅ NEW
       { path: 'saved', component: Saved, meta: { title: 'Saved' } },
 
-      { path: 'announcements', component: Announcements, meta: { title: 'Announcements' } },
-
       { path: 'profile', component: Profile, meta: { title: 'Profile' } },
 
       // Course rep onboarding + uploads
@@ -67,8 +61,6 @@ const routes = [
       { path: 'admin/rep-requests', component: AdminRepRequests, meta: { title: 'Rep Requests', roles: ['admin'] } },
       { path: 'admin/course-reps', component: AdminCourseReps, meta: { title: 'Manage Course Reps', roles: ['admin'] } },
       { path: 'admin/upload-logs', component: AdminUploadLogs, meta: { title: 'Upload Audit Log', roles: ['admin'] } },
-
-      { path: 'admin/announcements', component: AdminAnnouncements, meta: { title: 'Announcements', roles: ['admin'] } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
