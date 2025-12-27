@@ -12,7 +12,6 @@ const router = useRouter()
 const content = useContentStore()
 const data = useDataStore()
 const ai = useAiStore()
-const ai = useAiStore()
 
 const bankId = computed(() => route.params.bankId || route.params.id)
 const qIndex = ref(0)
@@ -26,11 +25,6 @@ const aiExplanation = ref(null)
 const aiBusy = ref(false)
 const aiError = ref('')
 
-// AI UI state
-const aiHint = ref('')
-const aiExplain = ref(null)
-const aiBusy = ref(false)
-const aiError = ref('')
 
 const bank = computed(() => content.bank)
 const questions = computed(() => bank.value?.questions || [])
