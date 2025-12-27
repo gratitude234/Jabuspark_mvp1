@@ -1,22 +1,31 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { useContentStore } from '../stores/content'
 import { useDataStore } from '../stores/data'
+import { useAiStore } from '../stores/ai'
 import AppCard from '../components/AppCard.vue'
 import AppInput from '../components/AppInput.vue'
 import AppSelect from '../components/AppSelect.vue'
 import StatPill from '../components/StatPill.vue'
 
 const auth = useAuthStore()
+const router = useRouter()
 const catalog = useCatalogStore()
 const content = useContentStore()
 const data = useDataStore()
+const ai = useAiStore()
 
 const profile = computed(() => auth.user?.profile || {})
 const selectedCourseId = ref(profile.value.courseIds?.[0] || null)
 const query = ref('')
+
+const aiTopic = ref('')
+const aiDifficulty = ref('mixed')
+const aiCount = ref(8)
+const aiError = ref('')
 
 const myCourses = computed(() =>
   (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
@@ -41,6 +50,25 @@ const banks = computed(() => {
     return hay.includes(q)
   })
 })
+
+async function generateAiBank() {
+  if (!selectedCourseId.value) return
+  aiError.value = ''
+  try {
+    const out = await ai.generateBank({
+      courseId: selectedCourseId.value,
+      topic: aiTopic.value,
+      difficulty: aiDifficulty.value,
+      count: aiCount.value,
+    })
+    if (out?.bankId) {
+      await content.fetchBanks({ courseId: selectedCourseId.value || '' })
+      router.push(`/practice/${out.bankId}`)
+    }
+  } catch (e) {
+    aiError.value = e?.message || 'Failed to generate AI bank'
+  }
+}
 </script>
 
 <template>
@@ -82,6 +110,53 @@ const banks = computed(() => {
       </div>
 
       <div v-if="content.error" class="alert alert-warn mt-4" role="alert">{{ content.error }}</div>
+    </AppCard>
+
+    <!-- AI Generator -->
+    <AppCard class="mt-3">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="h2">AI quick quiz</div>
+          <p class="sub mt-1">Generate a fresh MCQ bank for the selected course using Gemini.</p>
+        </div>
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-3">
+        <div class="sm:col-span-2">
+          <label class="label" for="aiTopic">Topic (optional)</label>
+          <AppInput id="aiTopic" v-model="aiTopic" placeholder="e.g., Embryology: gastrulation" />
+        </div>
+        <div>
+          <label class="label" for="aiCount">Questions</label>
+          <AppInput id="aiCount" v-model="aiCount" type="number" min="3" max="20" placeholder="8" />
+        </div>
+      </div>
+
+      <div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
+        <div class="w-full sm:w-[220px]">
+          <label class="label" for="aiDifficulty">Difficulty</label>
+          <select id="aiDifficulty" v-model="aiDifficulty" class="input">
+            <option value="mixed">Mixed</option>
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </div>
+
+        <div class="flex-1" />
+
+        <button
+          class="btn btn-primary w-full sm:w-auto"
+          :disabled="!selectedCourseId || ai.loading.generateBank"
+          @click="generateAiBank"
+        >
+          <span v-if="!ai.loading.generateBank">Generate bank</span>
+          <span v-else>Generating…</span>
+        </button>
+      </div>
+
+      <div v-if="aiError" class="alert alert-warn mt-3" role="alert">{{ aiError }}</div>
+      <p class="help mt-2">Tip: AI banks are saved like normal practice banks so you can revisit them later.</p>
     </AppCard>
 
     <AppCard v-if="content.loading.banks">

@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useContentStore } from '../stores/content'
 import { useDataStore } from '../stores/data'
+import { useAiStore } from '../stores/ai'
 import AppCard from '../components/AppCard.vue'
 import AppButton from '../components/AppButton.vue'
 
@@ -10,6 +11,8 @@ const route = useRoute()
 const router = useRouter()
 const content = useContentStore()
 const data = useDataStore()
+const ai = useAiStore()
+const ai = useAiStore()
 
 const bankId = computed(() => route.params.bankId || route.params.id)
 const qIndex = ref(0)
@@ -17,6 +20,17 @@ const selected = ref(null)
 const reveal = ref(false)
 const busy = ref(false)
 const error = ref('')
+
+const aiHint = ref('')
+const aiExplanation = ref(null)
+const aiBusy = ref(false)
+const aiError = ref('')
+
+// AI UI state
+const aiHint = ref('')
+const aiExplain = ref(null)
+const aiBusy = ref(false)
+const aiError = ref('')
 
 const bank = computed(() => content.bank)
 const questions = computed(() => bank.value?.questions || [])
@@ -38,7 +52,17 @@ watch(bankId, async (id) => {
   qIndex.value = 0
   selected.value = null
   reveal.value = false
+  aiHint.value = ''
+  aiExplanation.value = null
+  aiError.value = ''
   await load(id)
+})
+
+watch(qIndex, () => {
+  aiHint.value = ''
+  aiExplanation.value = null
+  aiError.value = ''
+  aiBusy.value = false
 })
 
 async function load(id) {
@@ -80,6 +104,44 @@ async function submit() {
     error.value = e?.message || 'Failed to submit answer.'
   } finally {
     busy.value = false
+  }
+}
+
+async function getAiHint() {
+  if (!current.value) return
+  aiBusy.value = true
+  aiError.value = ''
+  try {
+    const res = await ai.explainMCQ({
+      bankId: bankId.value,
+      questionId: current.value.id,
+      mode: 'hint',
+      selectedIndex: selected.value
+    })
+    aiHint.value = res?.hint || res?.text || ''
+  } catch (e) {
+    aiError.value = e?.message || 'AI hint failed'
+  } finally {
+    aiBusy.value = false
+  }
+}
+
+async function getAiExplanation() {
+  if (!current.value) return
+  aiBusy.value = true
+  aiError.value = ''
+  try {
+    const res = await ai.explainMCQ({
+      bankId: bankId.value,
+      questionId: current.value.id,
+      mode: 'full',
+      selectedIndex: selected.value
+    })
+    aiExplanation.value = res || null
+  } catch (e) {
+    aiError.value = e?.message || 'AI explanation failed'
+  } finally {
+    aiBusy.value = false
   }
 }
 
@@ -191,9 +253,62 @@ function backToBanks() {
         </button>
       </div>
 
+      <!-- AI hint (before reveal) -->
+      <div v-if="!reveal" class="mt-4">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+          <button
+            class="btn btn-ghost w-full sm:w-auto"
+            :disabled="aiBusy"
+            @click="getAiHint"
+          >
+            <span v-if="!aiBusy">Get AI hint</span>
+            <span v-else>Thinking…</span>
+          </button>
+          <p class="text-xs text-text-3">Use hints to learn faster — but still try first.</p>
+        </div>
+
+        <div v-if="aiError" class="alert alert-warn mt-3" role="alert">{{ aiError }}</div>
+        <div v-else-if="aiHint" class="alert alert-ok mt-3" role="status">
+          <div class="font-semibold">AI hint</div>
+          <div class="mt-1 text-sm text-text-2">{{ aiHint }}</div>
+        </div>
+      </div>
+
       <div v-if="reveal" class="mt-4 alert alert-ok" role="status">
         <div class="font-semibold">Explanation</div>
         <div class="mt-1 text-sm text-text-2">{{ current.explanation || 'No explanation provided yet.' }}</div>
+      </div>
+
+      <!-- AI explanation (after reveal) -->
+      <div v-if="reveal" class="mt-3">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+          <button
+            class="btn btn-ghost w-full sm:w-auto"
+            :disabled="aiBusy"
+            @click="getAiExplanation"
+          >
+            <span v-if="!aiBusy">Explain with AI</span>
+            <span v-else>Thinking…</span>
+          </button>
+          <p class="text-xs text-text-3">Generates a deeper explanation + why other options are wrong.</p>
+        </div>
+
+        <div v-if="aiError" class="alert alert-warn mt-3" role="alert">{{ aiError }}</div>
+        <div v-else-if="aiExplanation" class="alert alert-ok mt-3" role="status">
+          <div class="font-semibold">AI explanation</div>
+
+          <div v-if="aiExplanation.explanation" class="mt-1 text-sm text-text-2">{{ aiExplanation.explanation }}</div>
+
+          <ul v-if="aiExplanation.steps?.length" class="mt-2 text-sm text-text-2 list-disc pl-5">
+            <li v-for="(s, i) in aiExplanation.steps" :key="i">{{ s }}</li>
+          </ul>
+
+          <ul v-if="aiExplanation.whyOthersAreWrong?.length" class="mt-2 text-sm text-text-2 list-disc pl-5">
+            <li v-for="(s, i) in aiExplanation.whyOthersAreWrong" :key="'w'+i">{{ s }}</li>
+          </ul>
+
+          <div v-if="aiExplanation.keyTakeaway" class="mt-2 text-sm text-text-2"><span class="font-semibold">Key takeaway:</span> {{ aiExplanation.keyTakeaway }}</div>
+        </div>
       </div>
 
       <div class="mt-5 flex flex-col sm:flex-row gap-2">
