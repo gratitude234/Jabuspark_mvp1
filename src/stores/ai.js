@@ -50,6 +50,15 @@ export const useAiStore = defineStore('ai', {
       } finally {
         this.loading.generateBank = false
       }
+    },
+
+    async docChat({ docType, docId, question }) {
+      if (!docType || !docId) throw new Error('Missing document reference')
+      const q = (question || '').trim()
+      if (!q) throw new Error('Type a question first')
+      const res = await apiFetch('/ai/doc-chat', { method: 'POST', body: { docType, docId, question: q } })
+      return res?.data
     }
+
   }
 })

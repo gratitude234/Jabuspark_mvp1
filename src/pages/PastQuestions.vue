@@ -355,6 +355,8 @@ function openPreview(pq) {
     </div>
 
     <PdfModal
+      :docType="'pastquestions'"
+      :docId="openItem?.id || ''"
       :open="!!openItem"
       :title="openItem?.title || 'Past question'"
       :url="openItem?.fileUrl || ''"

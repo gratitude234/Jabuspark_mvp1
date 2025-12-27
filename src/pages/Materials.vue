@@ -264,6 +264,8 @@ function clearSearch() {
     </div>
 
     <PdfModal
+      :docType="'materials'"
+      :docId="openItem?.id || ''"
       :open="!!openItem"
       :title="openItem?.title || 'Material'"
       :url="openItem?.fileUrl || ''"

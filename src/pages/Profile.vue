@@ -218,6 +218,7 @@ async function logout() {
             <RouterLink to="/admin/rep-requests" class="btn btn-ghost">Rep requests</RouterLink>
             <RouterLink to="/admin/course-reps" class="btn btn-ghost">Manage reps</RouterLink>
             <RouterLink to="/admin/upload-logs" class="btn btn-ghost">Upload audit log</RouterLink>
+            <RouterLink to="/admin/ai-tools" class="btn btn-ghost">AI tools</RouterLink>
           </div>
         </div>
 
