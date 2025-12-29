@@ -38,6 +38,13 @@ import Saved from '../pages/Saved.vue'
 import Notify from '../pages/Notify.vue'
 import AdminNotify from '../pages/AdminNotify.vue'
 
+// ✅ Study Groups
+import Groups from '../pages/Groups.vue'
+import GroupDetail from '../pages/GroupDetail.vue'
+import GroupChallengeNew from '../pages/GroupChallengeNew.vue'
+import ChallengeTake from '../pages/ChallengeTake.vue'
+import ChallengeResult from '../pages/ChallengeResult.vue'
+
 const routes = [
   {
     path: '/auth',
@@ -67,6 +74,13 @@ const routes = [
 
       // ✅ NEW: Announcements
       { path: 'notify', component: Notify, meta: { title: 'Announcements' } },
+
+      // ✅ Study Groups
+      { path: 'groups', component: Groups, meta: { title: 'Study Groups' } },
+      { path: 'groups/:groupId', component: GroupDetail, props: true, meta: { title: 'Group' } },
+      { path: 'groups/:groupId/new-challenge', component: GroupChallengeNew, props: true, meta: { title: 'New Challenge' } },
+      { path: 'challenge/:challengeId', component: ChallengeTake, props: true, meta: { title: 'Challenge' } },
+      { path: 'challenge/:challengeId/result', component: ChallengeResult, props: true, meta: { title: 'Challenge Result' } },
 
       // ✅ NEW killer features
       { path: 'leaderboard', component: Leaderboard, meta: { title: 'Leaderboard' } },

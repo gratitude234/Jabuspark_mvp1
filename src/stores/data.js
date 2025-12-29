@@ -34,6 +34,7 @@ const seed = () => ({
 
   // JabuNotify
   notify: { channels: [], feed: [], unreadTotal: 0 },
+  groups: { my: [], pending: 0, current: null, members: [], challenges: [], challenge: null, scoreboard: [], result: null },
 })
 
 export const useDataStore = defineStore('data', {
@@ -115,6 +116,16 @@ export const useDataStore = defineStore('data', {
 
     isSaved(kind, itemId) {
       return (this.progress.saved?.[kind] || []).includes(itemId)
+    },
+
+    applyProgress(p) {
+      if (!p) return
+      this.progress = { ...this.progress, ...p }
+      storage.set('progress', this.progress)
+      if (p.levelUp) toast(`Level up! You are now Level ${p.level}.`, 'ok')
+      if (Array.isArray(p.badgesNew) && p.badgesNew.length) {
+        p.badgesNew.forEach((k) => toast(`Badge unlocked: ${String(k).replace(/_/g, ' ')}`, 'ok'))
+      }
     },
 
     async submitAnswer({ bankId, questionId, selectedIndex, secondsSpent = 0 }) {
@@ -263,6 +274,106 @@ export const useDataStore = defineStore('data', {
       // refresh channels to update unread counts
       await Promise.allSettled([this.fetchNotifyChannels(), this.fetchNotifyFeed({ channelId })])
       return true
+    },
+
+
+    // ----------------------------
+    // Study Groups + Challenges
+    // ----------------------------
+    async fetchGroupsMy() {
+      try {
+        const res = await apiFetch('/groups/my')
+        this.groups.my = res?.data?.groups || []
+        return this.groups.my
+      } catch (e) {
+        this.groups.my = []
+        throw e
+      }
+    },
+
+    async fetchGroupBadge() {
+      try {
+        const res = await apiFetch('/groups/badge')
+        this.groups.pending = Number(res?.data?.pending || 0)
+        return this.groups.pending
+      } catch (e) {
+        this.groups.pending = 0
+        return 0
+      }
+    },
+
+    async createGroup(name) {
+      const res = await apiFetch('/groups/create', { method: 'POST', body: { name } })
+      toast('Group created', 'ok')
+      await this.fetchGroupsMy()
+      await this.fetchGroupBadge()
+      return res?.data?.group
+    },
+
+    async joinGroup(code) {
+      const res = await apiFetch('/groups/join', { method: 'POST', body: { code } })
+      toast('Joined group', 'ok')
+      await this.fetchGroupsMy()
+      await this.fetchGroupBadge()
+      return res?.data?.group
+    },
+
+    async leaveGroup(groupId) {
+      await apiFetch('/groups/leave', { method: 'POST', body: { groupId } })
+      toast('Left group', 'ok')
+      await this.fetchGroupsMy()
+      await this.fetchGroupBadge()
+      return true
+    },
+
+    async getGroup(groupId) {
+      const res = await apiFetch(`/groups/get?groupId=${encodeURIComponent(groupId)}`)
+      this.groups.current = res?.data?.group || null
+      this.groups.members = res?.data?.members || []
+      return res?.data
+    },
+
+    async listGroupChallenges(groupId) {
+      const res = await apiFetch(`/groups/challenge/list?groupId=${encodeURIComponent(groupId)}`)
+      this.groups.challenges = res?.data?.challenges || []
+      await this.fetchGroupBadge()
+      return this.groups.challenges
+    },
+
+    async createGroupChallenge({ groupId, title, courseId, count = 20, durationMins = 20 }) {
+      const res = await apiFetch('/groups/challenge/create', {
+        method: 'POST',
+        body: { groupId, title, courseId, count, durationMins },
+      })
+      toast('Challenge created', 'ok')
+      await this.listGroupChallenges(groupId)
+      await this.fetchGroupsMy()
+      await this.fetchGroupBadge()
+      return res?.data?.challenge
+    },
+
+    async getChallenge(challengeId) {
+      const res = await apiFetch(`/challenge/get?challengeId=${encodeURIComponent(challengeId)}`)
+      this.groups.challenge = res?.data || null
+      return res?.data
+    },
+
+    async submitChallenge({ challengeId, answers, secondsTotal = 0 }) {
+      const res = await apiFetch('/challenge/submit', {
+        method: 'POST',
+        body: { challengeId, answers, secondsTotal },
+      })
+      if (res?.data?.progress) this.applyProgress(res.data.progress)
+      this.groups.result = res?.data || null
+      try { storage.set(`challenge_result:${challengeId}`, this.groups.result) } catch (e) {}
+      await this.fetchGroupBadge()
+      return res?.data
+    },
+
+    async getChallengeScoreboard(challengeId) {
+      const res = await apiFetch(`/challenge/scoreboard?challengeId=${encodeURIComponent(challengeId)}`)
+      this.groups.scoreboard = res?.data?.items || []
+      return this.groups.scoreboard
     },
 
     async adminCreateNotifyPost({ channelId, title, body, linkUrl = '', isPinned = false } = {}) {

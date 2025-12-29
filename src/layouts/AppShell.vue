@@ -16,6 +16,7 @@ const isMatch = (prefix) => {
 
 const title = computed(() => route.meta?.title || 'JabuSpark')
 const notifyUnread = computed(() => Number(data.progress?.notifyUnread || 0))
+const groupPending = computed(() => Number(data.groups?.pending || 0))
 
 const navItems = computed(() => [
   { key: 'home', label: 'Home', to: '/dashboard', match: () => isMatch('/dashboard') },
@@ -53,7 +54,7 @@ function iconPath(key) {
 onMounted(async () => {
   // keep the bell badge fresh
   if (auth.isAuthed) {
-    await Promise.allSettled([data.fetchProgress(), data.fetchNotifyChannels()])
+    await Promise.allSettled([data.fetchProgress(), data.fetchNotifyChannels(), data.fetchGroupBadge()])
   }
 })
 
@@ -103,6 +104,21 @@ onMounted(async () => {
           </RouterLink>
 
           <RouterLink
+            to="/groups"
+            class="btn btn-ghost btn-sm relative"
+            :class="isMatch('/groups') ? 'bg-white/[0.08] ring-1 ring-white/10' : ''"
+            aria-label="Study Groups"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            <span v-if="groupPending > 0" class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" />
+          </RouterLink>
+
+          <RouterLink
             to="/profile"
             class="chip hover:bg-white/[0.06]"
             :class="isMatch('/profile') ? 'ring-1 ring-white/10 bg-white/[0.06]' : ''"
@@ -125,7 +141,7 @@ onMounted(async () => {
       class="sm:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-stroke/70 bg-surface/80 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]"
       aria-label="Primary"
     >
-      <div class="container-app h-[74px] grid grid-cols-5 gap-2 items-center">
+      <div class="container-app h-[74px] grid grid-cols-6 gap-2 items-center">
         <RouterLink
           v-for="item in navItems"
           :key="item.to"

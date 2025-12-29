@@ -87,7 +87,7 @@ onMounted(async () => {
         </div>
 
         <!-- Quick actions -->
-        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <div class="grid grid-cols-2 sm:grid-cols-6 gap-2">
           <RouterLink to="/practice" class="card card-press card-pad" aria-label="Go to practice">
             <div class="flex items-center gap-2">
               <span class="h-9 w-9 rounded-xl2 bg-accent/15 grid place-items-center">
@@ -163,6 +163,25 @@ onMounted(async () => {
               </div>
             </div>
           </RouterLink>
+
+          <RouterLink to="/groups" class="card card-press card-pad" aria-label="Go to study groups">
+            <div class="flex items-center gap-2">
+              <span class="h-9 w-9 rounded-xl2 bg-accent/15 grid place-items-center relative">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+                <span v-if="(data.groups?.pending || 0) > 0" class="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" />
+              </span>
+              <div>
+                <div class="text-sm font-extrabold">Groups</div>
+                <div class="text-xs text-text-3">{{ data.groups?.pending || 0 }} pending</div>
+              </div>
+            </div>
+          </RouterLink>
+
         </div>
 
         <!-- Continue card -->
