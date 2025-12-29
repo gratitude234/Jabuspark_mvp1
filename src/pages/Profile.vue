@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
+import { useDataStore } from '../stores/data'
 import AppCard from '../components/AppCard.vue'
 import AppSelect from '../components/AppSelect.vue'
 import AppButton from '../components/AppButton.vue'
@@ -10,6 +11,7 @@ import AppButton from '../components/AppButton.vue'
 const router = useRouter()
 const auth = useAuthStore()
 const catalog = useCatalogStore()
+const data = useDataStore()
 
 const user = computed(() => auth.user || {})
 const profile = computed(() => user.value.profile || {})
@@ -29,6 +31,43 @@ const courseQuery = ref('')
 const busy = ref(false)
 const error = ref('')
 const savedOk = ref(false)
+
+// Study goal & achievements
+const dailyGoal = ref(Number(data.progress?.dailyGoal || 10))
+
+watch(
+  () => data.progress?.dailyGoal,
+  (v) => {
+    if (typeof v === 'number' && !Number.isNaN(v)) dailyGoal.value = v
+  }
+)
+
+const badgeLabels = {
+  first_10: 'First 10 answered',
+  first_100: 'First 100 answered',
+  first_500: 'First 500 answered',
+  streak_7: '7-day streak',
+  streak_30: '30-day streak',
+  accuracy_80: '80% accuracy',
+  goal_complete: 'Goal completed',
+  perfect_10: 'Perfect 10',
+}
+
+const badges = computed(() => {
+  const list = Array.isArray(data.progress?.badges) ? data.progress.badges : []
+  return list.map((k) => ({ key: k, label: badgeLabels[k] || String(k).replace(/_/g, ' ') }))
+})
+
+const nextLevelIn = computed(() => {
+  const xp = Number(data.progress?.xp || 0)
+  const levelNow = Number(data.progress?.level || 1)
+  const nextAt = levelNow * 250
+  return Math.max(0, nextAt - xp)
+})
+
+async function saveDailyGoal() {
+  await data.setDailyGoal(dailyGoal.value)
+}
 
 const levelOptions = [
   { value: 100, label: '100 Level' },
@@ -115,6 +154,8 @@ onMounted(async () => {
   await catalog.bootstrap()
   await catalog.fetchCourses() // full catalog for search + course labels
 
+  await data.fetchProgress()
+
   if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
   await refreshDeptCourses()
 
@@ -188,6 +229,69 @@ async function logout() {
 
         <div v-if="savedOk" class="alert alert-ok mt-4" role="status">Saved successfully.</div>
         <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
+      </div>
+    </AppCard>
+
+    <AppCard>
+      <div class="h2">Study goal & achievements</div>
+      <p class="sub mt-1">Set a daily question goal and track your level and badges.</p>
+
+      <div class="divider my-4" />
+
+      <div class="grid gap-4 sm:grid-cols-3">
+        <div class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Daily goal</div>
+          <p class="sub mt-1">How many questions you want to answer today.</p>
+
+          <div class="mt-3 flex items-center gap-2">
+            <input
+              v-model.number="dailyGoal"
+              type="number"
+              min="5"
+              max="200"
+              class="input"
+              style="max-width: 130px"
+            />
+            <AppButton size="sm" @click="saveDailyGoal">Save</AppButton>
+          </div>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(10)">10</button>
+            <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(20)">20</button>
+            <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(50)">50</button>
+          </div>
+
+          <div class="mt-4 text-xs text-text-3">
+            Today: <b>{{ data.progress.todayAnswered }}</b> / {{ data.progress.dailyGoal }}
+          </div>
+          <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+            <div
+              class="h-full bg-accent transition-all duration-200"
+              :style="{ width: Math.min(100, Math.round((data.progress.todayAnswered / (data.progress.dailyGoal || 1)) * 100)) + '%' }"
+            />
+          </div>
+        </div>
+
+        <div class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Level</div>
+          <div class="mt-1 text-2xl font-extrabold">Level {{ data.progress.level }}</div>
+          <div class="mt-2 text-sm text-text-2">{{ data.progress.xp }} XP</div>
+          <div class="mt-2 text-xs text-text-3">Next level in {{ nextLevelIn }} XP</div>
+        </div>
+
+        <div class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Badges</div>
+          <p class="sub mt-1">Small wins that keep you consistent.</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <span v-if="!badges.length" class="text-xs text-text-3">No badges yet — start practising!</span>
+            <span
+              v-for="b in badges"
+              :key="b.key"
+              class="badge"
+              :title="b.key"
+            >{{ b.label }}</span>
+          </div>
+        </div>
       </div>
     </AppCard>
 

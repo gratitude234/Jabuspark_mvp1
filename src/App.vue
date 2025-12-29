@@ -13,6 +13,12 @@ const router = useRouter()
 
 const toast = ref(null)
 
+function handleToast(e) {
+  const d = e?.detail || {}
+  if (!d?.message) return
+  toast.value?.push(String(d.message), d.tone || 'ok')
+}
+
 function handleAuthExpired() {
   toast.value?.push('Session expired. Please log in again.', 'warn')
   router.push('/auth/login')
@@ -20,6 +26,7 @@ function handleAuthExpired() {
 
 onMounted(async () => {
   window.addEventListener('auth:expired', handleAuthExpired)
+  window.addEventListener('app:toast', handleToast)
   await auth.hydrate()
   if (auth.isAuthed) {
     // keep these light; pages can fetch deeper lists as needed
@@ -29,6 +36,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('auth:expired', handleAuthExpired)
+  window.removeEventListener('app:toast', handleToast)
 })
 </script>
 

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { storage } from '../utils/storage'
 import { apiFetch } from '../utils/api'
+import { toast } from '../utils/toast'
 
 const seed = () => ({
   progress: {
@@ -10,6 +11,15 @@ const seed = () => ({
     correctAnswered: 0,
     studySeconds: 0,
     lastActive: null,
+    // Gamification
+    dailyGoal: 10,
+    todayAnswered: 0,
+    todayCorrect: 0,
+    xp: 0,
+    level: 1,
+    badges: [],
+    badgesNew: [],
+    levelUp: false,
     saved: { pastQuestions: [], materials: [], questions: [] },
   },
   answers: {}, // { [bankId]: { answeredIds:[], correctIds:[] } }
@@ -110,12 +120,32 @@ export const useDataStore = defineStore('data', {
       if (p) {
         this.progress = { ...this.progress, ...p }
         storage.set('progress', this.progress)
+
+        // Toasts for motivation (safe even if backend doesn't send these)
+        if (p.levelUp) toast(`Level up! You are now Level ${p.level}.`, 'ok')
+        if (Array.isArray(p.badgesNew) && p.badgesNew.length) {
+          p.badgesNew.forEach((k) => toast(`Badge unlocked: ${k.replace(/_/g, ' ')}`, 'ok'))
+        }
       }
       if (bankStats) {
         this.answers = { ...this.answers, [bankId]: bankStats }
         storage.set('answers', this.answers)
       }
       return res?.data
+    },
+
+    async setDailyGoal(dailyGoal) {
+      const g = Math.max(5, Math.min(200, Number(dailyGoal) || 10))
+      const res = await apiFetch('/gamification/goal', {
+        method: 'POST',
+        body: { dailyGoal: g }
+      })
+
+      // Update locally even if migration isn't run on server
+      this.progress = { ...this.progress, dailyGoal: (res?.data?.dailyGoal ?? g) }
+      storage.set('progress', this.progress)
+      toast('Daily goal updated.', 'ok')
+      return this.progress.dailyGoal
     },
 
     async resetBank(bankId) {

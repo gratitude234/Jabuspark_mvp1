@@ -51,6 +51,13 @@ const banks = computed(() => {
   })
 })
 
+const goalPct = computed(() => {
+  const goal = Number(data.progress?.dailyGoal || 10)
+  const done = Number(data.progress?.todayAnswered || 0)
+  if (!goal) return 0
+  return Math.max(0, Math.min(100, Math.round((done / goal) * 100)))
+})
+
 async function generateAiBank() {
   if (!selectedCourseId.value) return
   aiError.value = ''
@@ -83,6 +90,25 @@ async function generateAiBank() {
             <StatPill label="Streak" :value="data.progress.streak" />
             <StatPill label="Accuracy" :value="data.progress.accuracy + '%'" />
             <StatPill label="Answered" :value="data.progress.totalAnswered" />
+          </div>
+
+          <div class="mt-4 card card-pad">
+            <div class="flex items-center justify-between text-sm font-semibold">
+              <span>Today</span>
+              <span class="text-text-2">Level {{ data.progress.level }} • {{ data.progress.xp }} XP</span>
+            </div>
+            <div class="mt-2 flex items-center justify-between text-xs text-text-3">
+              <span>Goal</span>
+              <span>{{ data.progress.todayAnswered }} / {{ data.progress.dailyGoal }}</span>
+            </div>
+            <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+              <div class="h-full bg-accent transition-all duration-200" :style="{ width: goalPct + '%' }" />
+            </div>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(10)">Goal 10</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(20)">Goal 20</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(50)">Goal 50</button>
+            </div>
           </div>
 
           <div class="mt-3 flex flex-wrap gap-2">

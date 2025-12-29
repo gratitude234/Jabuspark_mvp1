@@ -22,6 +22,17 @@ const greeting = computed(() => {
   return `Hi, ${name}`
 })
 
+const goalPct = computed(() => {
+  const goal = Number(data.progress?.dailyGoal || 10)
+  const done = Number(data.progress?.todayAnswered || 0)
+  if (!goal) return 0
+  return Math.max(0, Math.min(100, Math.round((done / goal) * 100)))
+})
+
+async function setGoal(g) {
+  await data.setDailyGoal(g)
+}
+
 onMounted(async () => {
   if (auth.isAuthed) {
     await Promise.allSettled([
@@ -141,8 +152,28 @@ onMounted(async () => {
         <!-- Continue card -->
         <div class="grid gap-2 sm:grid-cols-2">
           <div class="card card-pad">
-            <div class="text-sm font-extrabold">Today’s focus</div>
-            <p class="sub mt-1">Do 10 questions, then review your wrong answers.</p>
+          <div class="text-sm font-extrabold">Today’s focus</div>
+          <p class="sub mt-1">
+            Do <b>{{ data.progress.dailyGoal }}</b> questions today, then review your wrong answers.
+          </p>
+
+          <div class="mt-3">
+            <div class="flex items-center justify-between text-xs text-text-3">
+              <span>Progress</span>
+              <span>{{ data.progress.todayAnswered }} / {{ data.progress.dailyGoal }}</span>
+            </div>
+            <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+              <div class="h-full bg-accent transition-all duration-200" :style="{ width: goalPct + '%' }" />
+            </div>
+
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button type="button" class="btn btn-ghost btn-sm" @click="setGoal(10)">Goal 10</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="setGoal(20)">Goal 20</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="setGoal(50)">Goal 50</button>
+              <div class="flex-1" />
+              <span class="badge">Level {{ data.progress.level }} • {{ data.progress.xp }} XP</span>
+            </div>
+          </div>
             <div class="mt-3 flex gap-2">
               <RouterLink
                 :to="quickBank ? `/practice/${quickBank.id}` : '/practice'"
