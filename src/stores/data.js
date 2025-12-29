@@ -13,6 +13,9 @@ const seed = () => ({
     saved: { pastQuestions: [], materials: [], questions: [] },
   },
   answers: {}, // { [bankId]: { answeredIds:[], correctIds:[] } }
+  courseProgress: [],
+  courseTrends: {}, // { [courseId]: [{date,attempts,accuracy}] }
+  reviewQueue: [],
 })
 
 export const useDataStore = defineStore('data', {
@@ -68,6 +71,28 @@ export const useDataStore = defineStore('data', {
       this.progress.saved = { ...this.progress.saved, [kind]: list }
       storage.set('progress', this.progress)
       return saved
+    },
+
+    async fetchCourseProgress() {
+      const res = await apiFetch('/progress/courses')
+      this.courseProgress = res?.data?.courses || []
+      return this.courseProgress
+    },
+
+    async fetchCourseTrend(courseId, { days = 14 } = {}) {
+      const qs = new URLSearchParams({ courseId: String(courseId || ''), days: String(days) })
+      const res = await apiFetch(`/progress/trend?${qs.toString()}`)
+      const pts = res?.data?.points || []
+      this.courseTrends = { ...this.courseTrends, [courseId]: pts }
+      return pts
+    },
+
+    async fetchReviewQueue({ courseId = '', limit = 25 } = {}) {
+      const qs = new URLSearchParams({ limit: String(limit) })
+      if (courseId) qs.set('courseId', courseId)
+      const res = await apiFetch(`/practice/review?${qs.toString()}`)
+      this.reviewQueue = res?.data?.questions || []
+      return this.reviewQueue
     },
 
     isSaved(kind, itemId) {

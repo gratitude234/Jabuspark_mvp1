@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useContentStore } from '../stores/content'
 import { useDataStore } from '../stores/data'
@@ -14,6 +14,73 @@ const data = useDataStore()
 const ai = useAiStore()
 
 const bankId = computed(() => route.params.bankId || route.params.id)
+
+const mode = computed(() => String(route.query.mode || 'normal')) // normal | retry | wrong | timed
+const mins = computed(() => {
+  const n = Number(route.query.mins || 0)
+  return Number.isFinite(n) && n > 0 ? n : 10
+})
+
+const sessionQuestions = ref([]) // questions for current session (can be shuffled/filtered)
+const qStartedAt = ref(Date.now())
+
+const remaining = ref(0)
+const timeUp = ref(false)
+let timerId = null
+
+function shuffle(list) {
+  const a = [...list]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+function startTimerIfNeeded() {
+  if (timerId) window.clearInterval(timerId)
+  timerId = null
+  timeUp.value = false
+  if (mode.value !== 'timed') {
+    remaining.value = 0
+    return
+  }
+  remaining.value = Math.max(60, Math.round(mins.value * 60))
+  timerId = window.setInterval(() => {
+    if (remaining.value <= 0) {
+      timeUp.value = true
+      window.clearInterval(timerId)
+      timerId = null
+      return
+    }
+    remaining.value -= 1
+  }, 1000)
+}
+
+function setMode(next) {
+  const q = { ...(route.query || {}) }
+  if (!next || next === 'normal') {
+    delete q.mode
+    delete q.mins
+  } else {
+    q.mode = next
+    if (next === 'timed') q.mins = String(mins.value || 10)
+    else delete q.mins
+  }
+  router.replace({ query: q })
+}
+
+function setTimedMins(m) {
+  const q = { ...(route.query || {}), mode: 'timed', mins: String(m) }
+  router.replace({ query: q })
+}
+
+function formatRemaining() {
+  const s = Math.max(0, remaining.value)
+  const m = Math.floor(s / 60)
+  const ss = String(s % 60).padStart(2, '0')
+  return `${m}:${ss}`
+}
 const qIndex = ref(0)
 const selected = ref(null)
 const reveal = ref(false)
@@ -28,7 +95,7 @@ const aiError = ref('')
 
 const bank = computed(() => content.bank)
 const questions = computed(() => bank.value?.questions || [])
-const current = computed(() => questions.value[qIndex.value] || null)
+const current = computed(() => sessionQuestions.value[qIndex.value] || null)
 
 const bankStats = computed(() => data.answers?.[bankId.value] || { answeredIds: [], correctIds: [] })
 const answeredCount = computed(() => bankStats.value.answeredIds?.length || 0)
@@ -50,14 +117,53 @@ watch(bankId, async (id) => {
   aiExplanation.value = null
   aiError.value = ''
   await load(id)
+  buildSessionQuestions()
+  startTimerIfNeeded()
+  qStartedAt.value = Date.now()
+})
+
+watch(mode, () => {
+  qIndex.value = 0
+  selected.value = null
+  reveal.value = false
+  buildSessionQuestions()
+  startTimerIfNeeded()
+  qStartedAt.value = Date.now()
+})
+
+watch(mins, () => {
+  startTimerIfNeeded()
 })
 
 watch(qIndex, () => {
+  qStartedAt.value = Date.now()
   aiHint.value = ''
   aiExplanation.value = null
   aiError.value = ''
   aiBusy.value = false
 })
+
+function buildSessionQuestions() {
+  const all = questions.value || []
+  const stats = bankStats.value || { answeredIds: [], correctIds: [] }
+
+  // default: keep original order
+  let q = [...all]
+
+  if (mode.value === 'wrong') {
+    const answered = new Set(stats.answeredIds || [])
+    const correct = new Set(stats.correctIds || [])
+    const wrongIds = [...answered].filter((id) => !correct.has(id))
+    const wrongSet = new Set(wrongIds)
+    q = q.filter((qq) => wrongSet.has(qq.id))
+    q = shuffle(q)
+  } else if (mode.value === 'retry' || mode.value === 'timed') {
+    q = shuffle(q)
+  }
+
+  sessionQuestions.value = q
+  if (qIndex.value >= q.length) qIndex.value = 0
+}
 
 async function load(id) {
   error.value = ''
@@ -70,10 +176,13 @@ async function load(id) {
 onMounted(async () => {
   await data.fetchProgress()
   await load(bankId.value)
+  buildSessionQuestions()
+  startTimerIfNeeded()
 })
 
 function pick(i) {
   if (reveal.value) return
+  if (mode.value === 'timed' && timeUp.value) return
   selected.value = i
 }
 
@@ -81,13 +190,16 @@ async function submit() {
   if (!current.value) return
   if (selected.value === null) return
 
+  if (mode.value === 'timed' && timeUp.value) return
+
   busy.value = true
   try {
+    const secondsSpent = Math.max(0, Math.round((Date.now() - qStartedAt.value) / 1000))
     const res = await data.submitAnswer({
       bankId: bankId.value,
       questionId: current.value.id,
       selectedIndex: selected.value,
-      secondsSpent: 0
+      secondsSpent
     })
 
     reveal.value = true
@@ -176,6 +288,47 @@ function backToBanks() {
             <div class="kicker">Practice bank</div>
             <div class="h1 mt-1 truncate">{{ bank?.title || 'Loading…' }}</div>
             <p class="sub mt-2">Answer, reveal, then move fast. Keep it focused.</p>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <span class="text-xs text-text-3">Mode:</span>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :class="mode === 'normal' ? 'ring-1 ring-accent/50' : ''"
+                @click="setMode('normal')"
+              >Normal</button>
+
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :class="mode === 'retry' ? 'ring-1 ring-accent/50' : ''"
+                @click="setMode('retry')"
+              >Retry (shuffle)</button>
+
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :class="mode === 'wrong' ? 'ring-1 ring-accent/50' : ''"
+                @click="setMode('wrong')"
+              >Wrong only</button>
+
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :class="mode === 'timed' ? 'ring-1 ring-accent/50' : ''"
+                @click="setMode('timed')"
+              >Timed CBT</button>
+
+              <span v-if="mode === 'timed'" class="badge badge-warn ml-1">Time left: {{ formatRemaining() }}</span>
+            </div>
+
+            <div v-if="mode === 'timed'" class="mt-2 flex flex-wrap items-center gap-2">
+              <span class="text-xs text-text-3">Timer:</span>
+              <button type="button" class="btn btn-ghost btn-sm" @click="setTimedMins(5)">5m</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="setTimedMins(10)">10m</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="setTimedMins(20)">20m</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="setTimedMins(30)">30m</button>
+            </div>
+
           </div>
 
           <div class="flex items-center gap-2">
@@ -187,7 +340,7 @@ function backToBanks() {
         <div class="grid gap-2 sm:grid-cols-4">
           <div class="glass rounded-xl2 border border-stroke/60 px-4 py-3">
             <div class="text-xs text-text-3">Progress</div>
-            <div class="text-sm font-bold mt-1">{{ qIndex + 1 }} / {{ questions.length || 0 }}</div>
+            <div class="text-sm font-bold mt-1">{{ qIndex + 1 }} / {{ sessionQuestions.length || 0 }}</div>
           </div>
           <div class="glass rounded-xl2 border border-stroke/60 px-4 py-3">
             <div class="text-xs text-text-3">Answered</div>
@@ -218,6 +371,7 @@ function backToBanks() {
     </AppCard>
 
     <AppCard v-if="!content.loading.bank && current" class="relative">
+      <div v-if="timeUp" class="alert alert-warn mb-3" role="alert">Time is up. You can still review your stats, or go back.</div>
       <div class="kicker">Question {{ qIndex + 1 }}</div>
       <div class="mt-1 text-lg sm:text-xl font-extrabold leading-snug">{{ current.question }}</div>
 
@@ -319,7 +473,7 @@ function backToBanks() {
         <AppButton
           v-else
           class="w-full sm:w-auto"
-          :disabled="qIndex >= questions.length - 1"
+          :disabled="qIndex >= sessionQuestions.length - 1"
           @click="next"
         >
           Next question

@@ -10,6 +10,8 @@ import Dashboard from '../pages/Dashboard.vue'
 import PastQuestions from '../pages/PastQuestions.vue'
 import Materials from '../pages/Materials.vue'
 import Practice from '../pages/Practice.vue'
+import Review from '../pages/Review.vue'
+import Progress from '../pages/Progress.vue'
 import Profile from '../pages/Profile.vue'
 
 // Admin + uploads
@@ -47,10 +49,13 @@ const routes = [
 
       // ✅ so nav "/practice" never 404s (until you create PracticeHome)
       { path: 'practice', component: PracticeHome, meta: { title: 'Practice' } },
+      { path: 'practice/review', component: Review, meta: { title: 'Smart Review' } },
       { path: 'practice/:bankId', component: Practice, props: true, meta: { title: 'Practice' } },
 
       // ✅ NEW
       { path: 'saved', component: Saved, meta: { title: 'Saved' } },
+
+      { path: 'progress', component: Progress, meta: { title: 'Progress' } },
 
       { path: 'profile', component: Profile, meta: { title: 'Profile' } },
 

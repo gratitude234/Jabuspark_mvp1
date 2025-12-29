@@ -84,6 +84,24 @@ async function generateAiBank() {
             <StatPill label="Accuracy" :value="data.progress.accuracy + '%'" />
             <StatPill label="Answered" :value="data.progress.totalAnswered" />
           </div>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              @click="router.push('/practice/review')"
+            >
+              Smart Review
+              <span v-if="data.progress?.dueReviews" class="badge ml-2">{{ data.progress.dueReviews }}</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              @click="router.push('/progress')"
+            >
+              Progress
+            </button>
+          </div>
         </div>
 
         <div class="w-full sm:w-[340px]">
