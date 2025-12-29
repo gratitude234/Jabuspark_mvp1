@@ -127,6 +127,22 @@ async function generateAiBank() {
             >
               Progress
             </button>
+
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              @click="router.push('/exam')"
+            >
+              Exam Mode
+            </button>
+
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              @click="router.push('/leaderboard')"
+            >
+              Leaderboard
+            </button>
           </div>
         </div>
 

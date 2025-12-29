@@ -26,6 +26,10 @@ const seed = () => ({
   courseProgress: [],
   courseTrends: {}, // { [courseId]: [{date,attempts,accuracy}] }
   reviewQueue: [],
+
+  // Killer features
+  leaderboard: { week: '', courseId: '', items: [], me: null },
+  exam: { exam: null, questions: [], result: null },
 })
 
 export const useDataStore = defineStore('data', {
@@ -155,6 +159,54 @@ export const useDataStore = defineStore('data', {
       this.answers = next
       storage.set('answers', this.answers)
       return true
+    },
+
+    async fetchLeaderboard({ courseId = '', limit = 50 } = {}) {
+      const qs = new URLSearchParams({ limit: String(limit) })
+      if (courseId) qs.set('courseId', String(courseId))
+      const res = await apiFetch(`/leaderboard/weekly?${qs.toString()}`)
+      this.leaderboard = {
+        week: res?.data?.week || '',
+        courseId: res?.data?.courseId || courseId || '',
+        items: res?.data?.items || [],
+        me: res?.data?.me || null,
+      }
+      return this.leaderboard
+    },
+
+    async startExam({ courseId, count = 40, durationMins = 60 } = {}) {
+      const qs = new URLSearchParams({ courseId: String(courseId || ''), count: String(count), durationMins: String(durationMins) })
+      const res = await apiFetch(`/exam/start?${qs.toString()}`)
+      this.exam = { exam: res?.data?.exam || null, questions: res?.data?.questions || [], result: null }
+      return this.exam
+    },
+
+    async getExam(examId) {
+      const qs = new URLSearchParams({ examId: String(examId || '') })
+      const res = await apiFetch(`/exam/get?${qs.toString()}`)
+      this.exam = { exam: res?.data?.exam || null, questions: res?.data?.questions || [], result: this.exam?.result || null }
+      return this.exam
+    },
+
+    async submitExam({ examId, answers = {}, secondsTotal = 0 } = {}) {
+      const res = await apiFetch('/exam/submit', {
+        method: 'POST',
+        body: { examId, answers, secondsTotal }
+      })
+
+      // progress updates & motivation toasts
+      const p = res?.data?.progress
+      if (p) {
+        this.progress = { ...this.progress, ...p }
+        storage.set('progress', this.progress)
+        if (p.levelUp) toast(`Level up! You are now Level ${p.level}.`, 'ok')
+        if (Array.isArray(p.badgesNew) && p.badgesNew.length) {
+          p.badgesNew.forEach((k) => toast(`Badge unlocked: ${k.replace(/_/g, ' ')}`, 'ok'))
+        }
+      }
+
+      this.exam = { ...this.exam, result: res?.data || null }
+      return res?.data
     }
   }
 })

@@ -14,6 +14,12 @@ import Review from '../pages/Review.vue'
 import Progress from '../pages/Progress.vue'
 import Profile from '../pages/Profile.vue'
 
+// ✅ NEW killer features
+import Leaderboard from '../pages/Leaderboard.vue'
+import ExamHome from '../pages/ExamHome.vue'
+import ExamTake from '../pages/ExamTake.vue'
+import ExamResult from '../pages/ExamResult.vue'
+
 // Admin + uploads
 import RepRequest from '../pages/RepRequest.vue'
 import Uploads from '../pages/Uploads.vue'
@@ -55,8 +61,13 @@ const routes = [
       // ✅ NEW
       { path: 'saved', component: Saved, meta: { title: 'Saved' } },
 
-      { path: 'progress', component: Progress, meta: { title: 'Progress' } },
+      // ✅ NEW killer features
+      { path: 'leaderboard', component: Leaderboard, meta: { title: 'Leaderboard' } },
+      { path: 'exam', component: ExamHome, meta: { title: 'Exam Mode' } },
+      { path: 'exam/:examId', component: ExamTake, props: true, meta: { title: 'Exam' } },
+      { path: 'exam/:examId/result', component: ExamResult, props: true, meta: { title: 'Exam Result' } },
 
+      { path: 'progress', component: Progress, meta: { title: 'Progress' } },
       { path: 'profile', component: Profile, meta: { title: 'Profile' } },
 
       // Course rep onboarding + uploads
