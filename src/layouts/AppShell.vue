@@ -1,11 +1,13 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useDataStore } from '../stores/data'
 import LogoMark from '../components/LogoMark.vue'
 
 const route = useRoute()
 const auth = useAuthStore()
+const data = useDataStore()
 
 const isMatch = (prefix) => {
   const p = route.path || ''
@@ -13,6 +15,7 @@ const isMatch = (prefix) => {
 }
 
 const title = computed(() => route.meta?.title || 'JabuSpark')
+const notifyUnread = computed(() => Number(data.progress?.notifyUnread || 0))
 
 const navItems = computed(() => [
   { key: 'home', label: 'Home', to: '/dashboard', match: () => isMatch('/dashboard') },
@@ -46,6 +49,14 @@ function iconPath(key) {
       return 'M4 4h16v16H4z'
   }
 }
+
+onMounted(async () => {
+  // keep the bell badge fresh
+  if (auth.isAuthed) {
+    await Promise.allSettled([data.fetchProgress(), data.fetchNotifyChannels()])
+  }
+})
+
 </script>
 
 <template>
@@ -77,6 +88,19 @@ function iconPath(key) {
 
         <div class="flex items-center gap-2">
           <div class="hidden sm:block text-sm text-text-2">{{ title }}</div>
+
+          <RouterLink
+            to="/notify"
+            class="btn btn-ghost btn-sm relative"
+            :class="isMatch('/notify') ? 'bg-white/[0.08] ring-1 ring-white/10' : ''"
+            aria-label="Announcements"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 7h18s-3 0-3-7" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+            <span v-if="notifyUnread > 0" class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" />
+          </RouterLink>
 
           <RouterLink
             to="/profile"

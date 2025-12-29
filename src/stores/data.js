@@ -21,6 +21,7 @@ const seed = () => ({
     badgesNew: [],
     levelUp: false,
     saved: { pastQuestions: [], materials: [], questions: [] },
+    notifyUnread: 0,
   },
   answers: {}, // { [bankId]: { answeredIds:[], correctIds:[] } }
   courseProgress: [],
@@ -30,6 +31,9 @@ const seed = () => ({
   // Killer features
   leaderboard: { week: '', courseId: '', items: [], me: null },
   exam: { exam: null, questions: [], result: null },
+
+  // JabuNotify
+  notify: { channels: [], feed: [], unreadTotal: 0 },
 })
 
 export const useDataStore = defineStore('data', {
@@ -207,6 +211,63 @@ export const useDataStore = defineStore('data', {
 
       this.exam = { ...this.exam, result: res?.data || null }
       return res?.data
+    },
+
+    // ----------------------------
+    // JabuNotify (Announcements)
+    // ----------------------------
+    async fetchNotifyChannels() {
+      const res = await apiFetch('/notify/channels')
+      const channels = res?.data?.channels || []
+      const unreadTotal = Number(res?.data?.unreadTotal || 0)
+      this.notify = { ...this.notify, channels, unreadTotal }
+
+      // mirror into progress for top-bar badge
+      this.progress = { ...this.progress, notifyUnread: unreadTotal }
+      storage.set('progress', this.progress)
+      return channels
+    },
+
+    async toggleNotifyFollow(channelId, follow = null) {
+      const res = await apiFetch('/notify/follow', { method: 'POST', body: { channelId, follow } })
+      const isFollowed = !!res?.data?.isFollowed
+      const channels = (this.notify.channels || []).map((c) => (c.id === channelId ? { ...c, isFollowed } : c))
+      this.notify = { ...this.notify, channels }
+      return isFollowed
+    },
+
+    async fetchNotifyFeed({ limit = 25, channelId = '' } = {}) {
+      const qs = new URLSearchParams({ limit: String(limit) })
+      if (channelId) qs.set('channelId', String(channelId))
+      const res = await apiFetch(`/notify/feed?${qs.toString()}`)
+      const feed = res?.data?.posts || []
+      this.notify = { ...this.notify, feed }
+      return feed
+    },
+
+    async markNotifyRead(postId) {
+      await apiFetch('/notify/read', { method: 'POST', body: { postId } })
+
+      const feed = (this.notify.feed || []).map((p) => (p.id === postId ? { ...p, isRead: true } : p))
+      this.notify = { ...this.notify, feed }
+
+      // update badge counts optimistically
+      const current = Number(this.progress.notifyUnread || 0)
+      this.progress = { ...this.progress, notifyUnread: Math.max(0, current - 1) }
+      storage.set('progress', this.progress)
+      return true
+    },
+
+    async markAllNotifyRead({ channelId = '' } = {}) {
+      await apiFetch('/notify/read', { method: 'POST', body: { all: true, channelId: channelId || undefined } })
+      // refresh channels to update unread counts
+      await Promise.allSettled([this.fetchNotifyChannels(), this.fetchNotifyFeed({ channelId })])
+      return true
+    },
+
+    async adminCreateNotifyPost({ channelId, title, body, linkUrl = '', isPinned = false } = {}) {
+      const res = await apiFetch('/notify/post', { method: 'POST', body: { channelId, title, body, linkUrl, isPinned } })
+      return res?.data?.post || null
     }
   }
 })

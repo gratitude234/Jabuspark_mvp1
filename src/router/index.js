@@ -34,6 +34,10 @@ import PracticeHome from '../pages/PracticeHome.vue'
 // ✅ NEW
 import Saved from '../pages/Saved.vue'
 
+// ✅ NEW: Announcements
+import Notify from '../pages/Notify.vue'
+import AdminNotify from '../pages/AdminNotify.vue'
+
 const routes = [
   {
     path: '/auth',
@@ -61,6 +65,9 @@ const routes = [
       // ✅ NEW
       { path: 'saved', component: Saved, meta: { title: 'Saved' } },
 
+      // ✅ NEW: Announcements
+      { path: 'notify', component: Notify, meta: { title: 'Announcements' } },
+
       // ✅ NEW killer features
       { path: 'leaderboard', component: Leaderboard, meta: { title: 'Leaderboard' } },
       { path: 'exam', component: ExamHome, meta: { title: 'Exam Mode' } },
@@ -79,6 +86,7 @@ const routes = [
       { path: 'admin/course-reps', component: AdminCourseReps, meta: { title: 'Manage Course Reps', roles: ['admin'] } },
       { path: 'admin/ai-tools', component: AdminAiTools, meta: { title: 'AI Tools', roles: ['admin'] } },
       { path: 'admin/upload-logs', component: AdminUploadLogs, meta: { title: 'Upload Audit Log', roles: ['admin'] } },
+      { path: 'admin/notify', component: AdminNotify, meta: { title: 'Post Announcement', roles: ['admin'] } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },

@@ -87,7 +87,7 @@ onMounted(async () => {
         </div>
 
         <!-- Quick actions -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <RouterLink to="/practice" class="card card-press card-pad" aria-label="Go to practice">
             <div class="flex items-center gap-2">
               <span class="h-9 w-9 rounded-xl2 bg-accent/15 grid place-items-center">
@@ -144,6 +144,22 @@ onMounted(async () => {
               <div>
                 <div class="text-sm font-extrabold">Saved</div>
                 <div class="text-xs text-text-3">Bookmarks</div>
+              </div>
+            </div>
+          </RouterLink>
+
+          <RouterLink to="/notify" class="card card-press card-pad" aria-label="Go to announcements">
+            <div class="flex items-center gap-2">
+              <span class="h-9 w-9 rounded-xl2 bg-accent/15 grid place-items-center relative">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
+                  <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 7h18s-3 0-3-7" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                <span v-if="(data.progress.notifyUnread || 0) > 0" class="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" />
+              </span>
+              <div>
+                <div class="text-sm font-extrabold">Announcements</div>
+                <div class="text-xs text-text-3">{{ data.progress.notifyUnread || 0 }} new</div>
               </div>
             </div>
           </RouterLink>
