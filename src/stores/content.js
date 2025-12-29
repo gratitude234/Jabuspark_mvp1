@@ -40,9 +40,6 @@ export const useContentStore = defineStore('content', {
           bank.questions = bank.questions.map((q) => ({
             ...q,
             answerIndex: typeof q.answerIndex === 'string' ? Number(q.answerIndex) : q.answerIndex,
-            // Keep legacy aliases so older UI bindings still work
-            prompt: q.prompt ?? q.question ?? '',
-            explain: q.explain ?? q.explanation ?? '',
             question: q.question ?? q.prompt ?? '',
             explanation: q.explanation ?? q.explain ?? '',
           }))

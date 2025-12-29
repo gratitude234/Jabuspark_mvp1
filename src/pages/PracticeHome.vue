@@ -6,7 +6,6 @@ import { useCatalogStore } from '../stores/catalog'
 import { useContentStore } from '../stores/content'
 import { useDataStore } from '../stores/data'
 import { useAiStore } from '../stores/ai'
-import { apiFetch } from '../utils/api'
 import AppCard from '../components/AppCard.vue'
 import AppInput from '../components/AppInput.vue'
 import AppSelect from '../components/AppSelect.vue'
@@ -33,27 +32,6 @@ const aiDifficulty = ref('mixed')
 const aiCount = ref(8)
 const aiError = ref('')
 
-// Saved wrong questions (spaced repetition)
-const wrongTotal = ref(0)
-const wrongDue = ref(0)
-const wrongLoading = ref(false)
-
-async function fetchWrongSummary(courseId) {
-  if (!courseId) { wrongTotal.value = 0; wrongDue.value = 0; return }
-  wrongLoading.value = true
-  try {
-    const res = await apiFetch(`/practice/wrong-summary?courseId=${encodeURIComponent(courseId)}`)
-    wrongTotal.value = Number(res?.totalSaved || 0)
-    wrongDue.value = Number(res?.dueNow || 0)
-  } catch {
-    // If table isn't migrated yet or API fails, don't block practice
-    wrongTotal.value = 0
-    wrongDue.value = 0
-  } finally {
-    wrongLoading.value = false
-  }
-}
-
 const myCourses = computed(() =>
   (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
 )
@@ -62,14 +40,12 @@ const courseOptions = computed(() => myCourses.value.map(c => ({ value: c.id, la
 watch(selectedCourseId, async (cid) => {
   await content.fetchBanks({ courseId: cid || '' })
   if (cid) await data.fetchCourseTrend({ courseId: cid, days: 14 })
-  await fetchWrongSummary(cid)
 })
 
 onMounted(async () => {
   await Promise.allSettled([catalog.fetchCourses(), data.fetchProgress()])
   await content.fetchBanks({ courseId: selectedCourseId.value || '' })
   if (selectedCourseId.value) await data.fetchCourseTrend({ courseId: selectedCourseId.value, days: 14 })
-  await fetchWrongSummary(selectedCourseId.value)
 })
 
 const trend = computed(() => {
@@ -210,48 +186,6 @@ async function generateAiBank() {
       </div>
 
       <div v-if="content.error" class="alert alert-warn mt-4" role="alert">{{ content.error }}</div>
-    </AppCard>
-
-    <!-- Saved wrong questions (spaced repetition) -->
-    <AppCard class="mt-3">
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <div class="h2">Saved wrong questions</div>
-          <p class="sub mt-1">Questions you miss are saved so you can review them later (spaced repetition).
-          </p>
-        </div>
-        <div class="flex-1" />
-      </div>
-
-      <div class="mt-3">
-        <div v-if="!selectedCourseId" class="help">Select a course above to see your saved wrong questions for that course.</div>
-        <div v-else class="flex flex-col sm:flex-row sm:items-center gap-2">
-          <div class="flex items-center gap-2">
-            <span class="badge" :title="'Total saved wrong questions'">Saved: {{ wrongTotal }}</span>
-            <span class="badge" :title="'Due for review now'">Due: {{ wrongDue }}</span>
-            <span v-if="wrongLoading" class="text-xs text-text-3">Loading…</span>
-          </div>
-
-          <div class="flex-1" />
-
-          <RouterLink
-            class="btn btn-primary w-full sm:w-auto"
-            :to="`/review?courseId=${encodeURIComponent(selectedCourseId)}`"
-          >
-            Review due
-          </RouterLink>
-          <RouterLink
-            class="btn w-full sm:w-auto"
-            :to="`/review?courseId=${encodeURIComponent(selectedCourseId)}&mode=all`"
-          >
-            View all saved
-          </RouterLink>
-        </div>
-
-        <p v-if="selectedCourseId && wrongTotal === 0" class="help mt-2">
-          You don’t have any saved wrong questions yet. Once you miss a question, it will appear here automatically.
-        </p>
-      </div>
     </AppCard>
 
     <!-- AI Generator -->

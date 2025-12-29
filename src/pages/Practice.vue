@@ -159,9 +159,7 @@ function fmtTime(secs) {
 
 async function load() {
   await Promise.allSettled([catalog.fetchCourses(), data.fetchProgress()])
-  // fetchBank expects a string id; passing an object here becomes "[object Object]"
-  // and causes the API call to hit /banks/%5Bobject%20Object%5D (404)
-  await content.fetchBank(bankId.value)
+  await content.fetchBank({ id: bankId.value })
   buildOrder()
 }
 
