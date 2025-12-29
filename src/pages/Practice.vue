@@ -1,375 +1,336 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
-import { useCatalogStore } from '../stores/catalog'
 import { useContentStore } from '../stores/content'
 import { useDataStore } from '../stores/data'
+import { useAiStore } from '../stores/ai'
 import AppCard from '../components/AppCard.vue'
 import AppButton from '../components/AppButton.vue'
-import StatPill from '../components/StatPill.vue'
 
 const route = useRoute()
 const router = useRouter()
-
-const auth = useAuthStore()
-const catalog = useCatalogStore()
 const content = useContentStore()
 const data = useDataStore()
+const ai = useAiStore()
 
-const profile = computed(() => auth.user?.profile || {})
 const bankId = computed(() => route.params.bankId || route.params.id)
+const qIndex = ref(0)
+const selected = ref(null)
+const reveal = ref(false)
+const busy = ref(false)
+const error = ref('')
 
-const modeShuffle = computed(() => String(route.query.shuffle || '') === '1')
-const modeTimed = computed(() => String(route.query.timed || '') === '1')
-const modeMinutes = computed(() => {
-  const n = Number(route.query.minutes || 10)
-  if (!Number.isFinite(n)) return 10
-  return Math.max(1, Math.min(60, Math.floor(n)))
-})
+const aiHint = ref('')
+const aiExplanation = ref(null)
+const aiBusy = ref(false)
+const aiError = ref('')
+
 
 const bank = computed(() => content.bank)
 const questions = computed(() => bank.value?.questions || [])
+const current = computed(() => questions.value[qIndex.value] || null)
 
-// Order controls (supports shuffle + "retry wrong")
-const order = ref([]) // array of indices into questions
-const qPos = ref(0)
-const qIndex = computed(() => order.value[qPos.value] ?? 0)
-const q = computed(() => questions.value[qIndex.value] || null)
+const bankStats = computed(() => data.answers?.[bankId.value] || { answeredIds: [], correctIds: [] })
+const answeredCount = computed(() => bankStats.value.answeredIds?.length || 0)
+const correctCount = computed(() => bankStats.value.correctIds?.length || 0)
+const accuracy = computed(() => (answeredCount.value ? Math.round((correctCount.value / answeredCount.value) * 100) : 0))
 
-const selectedIndex = ref(null)
-const reveal = ref(false)
-const busy = ref(false)
-const finished = ref(false)
-const timeUp = ref(false)
-const reviewOpen = ref(false)
-
-// Timing
-const questionStartedAt = ref(Date.now())
-const timeLeft = ref(null) // seconds, null when not timed
-let tick = null
-
-const session = reactive({
-  startedAt: Date.now(),
-  attempts: {}, // { [questionId]: { selectedIndex, isCorrect, secondsSpent } }
+const progressPct = computed(() => {
+  const total = questions.value.length || 0
+  if (!total) return 0
+  return Math.min(100, Math.round(((qIndex.value + 1) / total) * 100))
 })
 
-const sessionAnswered = computed(() => Object.keys(session.attempts).length)
-const sessionCorrect = computed(() => Object.values(session.attempts).filter(a => a?.isCorrect).length)
-const sessionAccuracy = computed(() => (sessionAnswered.value ? Math.round((sessionCorrect.value / sessionAnswered.value) * 100) : 0))
-
-const overall = computed(() => data.answers?.[bankId.value] || { answeredIds: [], correctIds: [] })
-const overallAnswered = computed(() => overall.value.answeredIds?.length || 0)
-const overallCorrect = computed(() => overall.value.correctIds?.length || 0)
-const overallAccuracy = computed(() => (overallAnswered.value ? Math.round((overallCorrect.value / overallAnswered.value) * 100) : 0))
-
-const wrongInSession = computed(() => {
-  const list = []
-  for (const [qid, a] of Object.entries(session.attempts)) {
-    if (!a?.isCorrect) list.push(qid)
-  }
-  return list
-})
-
-const wrongCards = computed(() => {
-  const byId = new Map(questions.value.map((qq, idx) => [qq.id, { q: qq, idx }]))
-  return wrongInSession.value
-    .map((qid) => {
-      const meta = byId.get(qid)
-      return meta ? { ...meta, attempt: session.attempts[qid] } : null
-    })
-    .filter(Boolean)
-})
-
-function shuffleArray(arr) {
-  const a = [...arr]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
-
-function stopTimer() {
-  if (tick) {
-    clearInterval(tick)
-    tick = null
-  }
-}
-
-function startTimer() {
-  stopTimer()
-  if (!modeTimed.value) {
-    timeLeft.value = null
-    return
-  }
-  timeLeft.value = modeMinutes.value * 60
-  tick = setInterval(() => {
-    if (timeLeft.value == null) return
-    timeLeft.value = Math.max(0, timeLeft.value - 1)
-    if (timeLeft.value === 0) {
-      stopTimer()
-      timeUp.value = true
-      finished.value = true
-      reveal.value = true
-    }
-  }, 1000)
-}
-
-function resetSessionState() {
-  selectedIndex.value = null
+watch(bankId, async (id) => {
+  if (!id) return
+  qIndex.value = 0
+  selected.value = null
   reveal.value = false
-  finished.value = false
-  timeUp.value = false
-  reviewOpen.value = false
-  session.startedAt = Date.now()
-  session.attempts = {}
-  questionStartedAt.value = Date.now()
-  startTimer()
-}
-
-function buildOrder({ onlyWrong = false, forceShuffle = false } = {}) {
-  const base = questions.value.map((_, idx) => idx)
-  let indices = base
-
-  if (onlyWrong) {
-    const answered = overall.value.answeredIds || []
-    const correct = overall.value.correctIds || []
-    const wrong = answered.filter((id) => !correct.includes(id))
-    if (wrong.length) {
-      const set = new Set(wrong)
-      indices = base.filter((idx) => set.has(questions.value[idx]?.id))
-    }
-  }
-
-  const shouldShuffle = forceShuffle || modeShuffle.value
-  if (shouldShuffle) indices = shuffleArray(indices)
-
-  order.value = indices
-  qPos.value = 0
-  resetSessionState()
-}
-
-function fmtTime(secs) {
-  const s = Math.max(0, Math.floor(secs || 0))
-  const m = Math.floor(s / 60)
-  const r = s % 60
-  return `${m}:${String(r).padStart(2, '0')}`
-}
-
-async function load() {
-  await Promise.allSettled([catalog.fetchCourses(), data.fetchProgress()])
-  await content.fetchBank({ id: bankId.value })
-  buildOrder()
-}
-
-onMounted(load)
-watch(bankId, load)
-
-watch(q, () => {
-  questionStartedAt.value = Date.now()
-  selectedIndex.value = null
-  reveal.value = false
+  aiHint.value = ''
+  aiExplanation.value = null
+  aiError.value = ''
+  await load(id)
 })
 
-onBeforeUnmount(() => stopTimer())
+watch(qIndex, () => {
+  aiHint.value = ''
+  aiExplanation.value = null
+  aiError.value = ''
+  aiBusy.value = false
+})
+
+async function load(id) {
+  error.value = ''
+  await content.fetchBank(id)
+  if (!content.bank || !content.bank.questions?.length) {
+    error.value = 'This bank has no questions yet.'
+  }
+}
+
+onMounted(async () => {
+  await data.fetchProgress()
+  await load(bankId.value)
+})
+
+function pick(i) {
+  if (reveal.value) return
+  selected.value = i
+}
 
 async function submit() {
-  if (!q.value || selectedIndex.value == null || busy.value || finished.value) return
-  busy.value = true
+  if (!current.value) return
+  if (selected.value === null) return
 
-  const secondsSpent = Math.max(0, Math.round((Date.now() - questionStartedAt.value) / 1000))
+  busy.value = true
   try {
-    const out = await data.submitAnswer({
+    const res = await data.submitAnswer({
       bankId: bankId.value,
-      questionId: q.value.id,
-      selectedIndex: selectedIndex.value,
-      secondsSpent,
+      questionId: current.value.id,
+      selectedIndex: selected.value,
+      secondsSpent: 0
     })
 
-    // Response: { isCorrect, correctIndex, explanation }
-    session.attempts = {
-      ...session.attempts,
-      [q.value.id]: {
-        selectedIndex: selectedIndex.value,
-        isCorrect: !!out?.isCorrect,
-        secondsSpent,
-        correctIndex: out?.correctIndex,
-        explanation: out?.explanation,
-      },
-    }
-
     reveal.value = true
+
+    // If API returned isCorrect, we can show a toast someday; for now just keep UI.
+    return res
+  } catch (e) {
+    error.value = e?.message || 'Failed to submit answer.'
   } finally {
     busy.value = false
   }
 }
 
-function next() {
-  if (!reveal.value) return
-  if (qPos.value < order.value.length - 1) {
-    qPos.value += 1
-    selectedIndex.value = null
-    reveal.value = false
-    return
+async function getAiHint() {
+  if (!current.value) return
+  aiBusy.value = true
+  aiError.value = ''
+  try {
+    const res = await ai.explainMCQ({
+      bankId: bankId.value,
+      questionId: current.value.id,
+      mode: 'hint',
+      selectedIndex: selected.value
+    })
+    aiHint.value = res?.hint || res?.text || ''
+  } catch (e) {
+    aiError.value = e?.message || 'AI hint failed'
+  } finally {
+    aiBusy.value = false
   }
-  finished.value = true
-  reviewOpen.value = true
-  stopTimer()
 }
 
-function retry({ onlyWrong = false } = {}) {
-  buildOrder({ onlyWrong, forceShuffle: true })
+async function getAiExplanation() {
+  if (!current.value) return
+  aiBusy.value = true
+  aiError.value = ''
+  try {
+    const res = await ai.explainMCQ({
+      bankId: bankId.value,
+      questionId: current.value.id,
+      mode: 'full',
+      selectedIndex: selected.value
+    })
+    aiExplanation.value = res || null
+  } catch (e) {
+    aiError.value = e?.message || 'AI explanation failed'
+  } finally {
+    aiBusy.value = false
+  }
+}
+
+function next() {
+  if (qIndex.value < questions.value.length - 1) {
+    qIndex.value++
+    selected.value = null
+    reveal.value = false
+  }
+}
+
+async function resetBank() {
+  busy.value = true
+  error.value = ''
+  try {
+    await data.resetBank(bankId.value)
+    qIndex.value = 0
+    selected.value = null
+    reveal.value = false
+  } catch (e) {
+    error.value = e?.message || 'Failed to reset bank.'
+  } finally {
+    busy.value = false
+  }
 }
 
 function backToBanks() {
   router.push('/practice')
 }
-
-const title = computed(() => {
-  const c = catalog.coursesById?.[bank.value?.courseId] || null
-  const suffix = modeTimed.value ? ` • Timed (${modeMinutes.value}m)` : ''
-  const prefix = modeShuffle.value ? ' • Shuffle' : ''
-  return `${bank.value?.title || 'Practice'}${prefix}${suffix}${c ? ` — ${c.code}` : ''}`
-})
-
-const isLast = computed(() => qPos.value >= order.value.length - 1)
-const progressText = computed(() => `${Math.min(order.value.length, qPos.value + 1)}/${order.value.length || 0}`)
-
 </script>
 
 <template>
   <div class="page">
     <AppCard>
-      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div class="min-w-0">
-          <div class="h1">{{ title }}</div>
-          <p class="sub mt-1">
-            {{ bank?.mode === 'ai' ? 'AI-generated bank' : 'Practice bank' }} • {{ progressText }}
-            <span v-if="modeTimed && timeLeft !== null"> • {{ fmtTime(timeLeft) }}</span>
-          </p>
+      <div class="flex flex-col gap-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="kicker">Practice bank</div>
+            <div class="h1 mt-1 truncate">{{ bank?.title || 'Loading…' }}</div>
+            <p class="sub mt-2">Answer, reveal, then move fast. Keep it focused.</p>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button class="btn btn-ghost btn-sm" @click="backToBanks">Banks</button>
+            <button class="btn btn-ghost btn-sm" :disabled="busy" @click="resetBank">Reset</button>
+          </div>
         </div>
 
-        <div class="flex items-center gap-2">
-          <AppButton variant="ghost" class="btn-sm" @click="backToBanks">Back</AppButton>
+        <div class="grid gap-2 sm:grid-cols-4">
+          <div class="glass rounded-xl2 border border-stroke/60 px-4 py-3">
+            <div class="text-xs text-text-3">Progress</div>
+            <div class="text-sm font-bold mt-1">{{ qIndex + 1 }} / {{ questions.length || 0 }}</div>
+          </div>
+          <div class="glass rounded-xl2 border border-stroke/60 px-4 py-3">
+            <div class="text-xs text-text-3">Answered</div>
+            <div class="text-sm font-bold mt-1">{{ answeredCount }}</div>
+          </div>
+          <div class="glass rounded-xl2 border border-stroke/60 px-4 py-3">
+            <div class="text-xs text-text-3">Accuracy</div>
+            <div class="text-sm font-bold mt-1">{{ accuracy }}%</div>
+          </div>
+          <div class="glass rounded-xl2 border border-stroke/60 px-4 py-3">
+            <div class="text-xs text-text-3">Correct</div>
+            <div class="text-sm font-bold mt-1">{{ correctCount }}</div>
+          </div>
         </div>
-      </div>
 
-      <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
-        <StatPill label="Answered" :value="sessionAnswered" />
-        <StatPill label="Accuracy" :value="sessionAccuracy + '%'" />
-        <StatPill label="Correct" :value="sessionCorrect" />
-        <StatPill label="Overall" :value="overallAccuracy + '%'" :sub="overallCorrect + '/' + overallAnswered" />
-      </div>
+        <div class="h-2 w-full rounded-full bg-white/10 overflow-hidden">
+          <div class="h-full bg-accent transition-all duration-200" :style="{ width: progressPct + '%' }" />
+        </div>
 
-      <div v-if="content.error" class="alert alert-warn mt-4" role="alert">{{ content.error }}</div>
+        <div v-if="content.loading.bank" class="grid gap-2">
+          <div class="skeleton h-24" />
+          <div class="skeleton h-12" />
+          <div class="skeleton h-12" />
+        </div>
+
+        <div v-else-if="error" class="alert alert-warn" role="alert">{{ error }}</div>
+      </div>
     </AppCard>
 
-    <!-- Finished / Summary -->
-    <AppCard v-if="finished" class="mt-3">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="h2">Session summary</div>
-          <p class="sub mt-1">
-            You got <strong>{{ sessionCorrect }}</strong> out of <strong>{{ sessionAnswered }}</strong> correct.
-            <span v-if="timeUp"> Time’s up.</span>
-          </p>
-        </div>
-        <div class="text-right">
-          <div class="text-3xl font-extrabold">{{ sessionAccuracy }}%</div>
-          <div class="text-xs text-text-3">This session</div>
-        </div>
-      </div>
+    <AppCard v-if="!content.loading.bank && current" class="relative">
+      <div class="kicker">Question {{ qIndex + 1 }}</div>
+      <div class="mt-1 text-lg sm:text-xl font-extrabold leading-snug">{{ current.question }}</div>
 
-      <div class="mt-4 flex flex-wrap gap-2">
-        <AppButton @click="retry({ onlyWrong: false })">Retry (shuffle)</AppButton>
-        <AppButton variant="ghost" :disabled="wrongCards.length === 0" @click="retry({ onlyWrong: true })">
-          Retry wrong (shuffle)
-        </AppButton>
-        <AppButton variant="ghost" @click="backToBanks">Choose another bank</AppButton>
-      </div>
-
-      <div class="divider mt-4" />
-
-      <div class="row mt-4">
-        <div>
-          <div class="h3">Review wrong answers</div>
-          <p class="help" v-if="wrongCards.length">Tap to see what you missed and why.</p>
-          <p class="help" v-else>Nice work — no wrong answers in this session.</p>
-        </div>
-        <button type="button" class="btn btn-ghost btn-sm" @click="reviewOpen = !reviewOpen">
-          {{ reviewOpen ? 'Hide' : 'Show' }}
+      <div class="mt-4 grid gap-2">
+        <button
+          v-for="(opt, i) in current.options"
+          :key="i"
+          type="button"
+          class="card card-press card-pad text-left"
+          :class="[
+            selected === i ? 'ring-2 ring-accent/50' : '',
+            reveal && i === current.answerIndex ? 'ring-2 ring-accent/55 bg-accent/10' : '',
+            reveal && selected === i && i !== current.answerIndex ? 'ring-2 ring-danger/45 bg-danger/10' : ''
+          ]"
+          @click="pick(i)"
+        >
+          <div class="flex items-start gap-3">
+            <div class="mt-0.5 h-6 w-6 rounded-full border border-stroke/60 grid place-items-center text-xs font-bold">
+              {{ String.fromCharCode(65 + i) }}
+            </div>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-text">{{ opt }}</div>
+              <div v-if="reveal && i === current.answerIndex" class="text-xs text-text-2 mt-1">Correct answer</div>
+              <div v-else-if="reveal && selected === i && i !== current.answerIndex" class="text-xs text-danger mt-1">Your choice</div>
+            </div>
+          </div>
         </button>
       </div>
 
-      <div v-if="reviewOpen" class="mt-3 space-y-3">
-        <div v-for="item in wrongCards" :key="item.q.id" class="card card-pad">
-          <div class="h3">{{ item.q.prompt }}</div>
-          <div class="mt-3 space-y-2">
-            <div
-              v-for="(opt, idx) in (item.q.options || [])"
-              :key="idx"
-              class="rounded-xl2 border px-3 py-2 text-sm"
-              :class="{
-                'border-accent/50 bg-accent/10': idx === item.q.answerIndex,
-                'border-danger/50 bg-danger/10': idx === item.attempt.selectedIndex && idx !== item.q.answerIndex,
-                'border-stroke/60 bg-white/[0.02]': idx !== item.q.answerIndex && idx !== item.attempt.selectedIndex,
-              }"
-            >
-              <div class="flex items-center justify-between gap-3">
-                <span class="min-w-0">{{ opt }}</span>
-                <span class="badge" v-if="idx === item.q.answerIndex">Correct</span>
-                <span class="badge" v-else-if="idx === item.attempt.selectedIndex">Your choice</span>
-              </div>
-            </div>
-          </div>
-          <div v-if="item.q.explain" class="mt-3 alert alert-ok">
-            {{ item.q.explain }}
-          </div>
+      <!-- AI hint (before reveal) -->
+      <div v-if="!reveal" class="mt-4">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+          <button
+            class="btn btn-ghost w-full sm:w-auto"
+            :disabled="aiBusy"
+            @click="getAiHint"
+          >
+            <span v-if="!aiBusy">Get AI hint</span>
+            <span v-else>Thinking…</span>
+          </button>
+          <p class="text-xs text-text-3">Use hints to learn faster — but still try first.</p>
         </div>
+
+        <div v-if="aiError" class="alert alert-warn mt-3" role="alert">{{ aiError }}</div>
+        <div v-else-if="aiHint" class="alert alert-ok mt-3" role="status">
+          <div class="font-semibold">AI hint</div>
+          <div class="mt-1 text-sm text-text-2">{{ aiHint }}</div>
+        </div>
+      </div>
+
+      <div v-if="reveal" class="mt-4 alert alert-ok" role="status">
+        <div class="font-semibold">Explanation</div>
+        <div class="mt-1 text-sm text-text-2">{{ current.explanation || 'No explanation provided yet.' }}</div>
+      </div>
+
+      <!-- AI explanation (after reveal) -->
+      <div v-if="reveal" class="mt-3">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+          <button
+            class="btn btn-ghost w-full sm:w-auto"
+            :disabled="aiBusy"
+            @click="getAiExplanation"
+          >
+            <span v-if="!aiBusy">Explain with AI</span>
+            <span v-else>Thinking…</span>
+          </button>
+          <p class="text-xs text-text-3">Generates a deeper explanation + why other options are wrong.</p>
+        </div>
+
+        <div v-if="aiError" class="alert alert-warn mt-3" role="alert">{{ aiError }}</div>
+        <div v-else-if="aiExplanation" class="alert alert-ok mt-3" role="status">
+          <div class="font-semibold">AI explanation</div>
+
+          <div v-if="aiExplanation.explanation" class="mt-1 text-sm text-text-2">{{ aiExplanation.explanation }}</div>
+
+          <ul v-if="aiExplanation.steps?.length" class="mt-2 text-sm text-text-2 list-disc pl-5">
+            <li v-for="(s, i) in aiExplanation.steps" :key="i">{{ s }}</li>
+          </ul>
+
+          <ul v-if="aiExplanation.whyOthersAreWrong?.length" class="mt-2 text-sm text-text-2 list-disc pl-5">
+            <li v-for="(s, i) in aiExplanation.whyOthersAreWrong" :key="'w'+i">{{ s }}</li>
+          </ul>
+
+          <div v-if="aiExplanation.keyTakeaway" class="mt-2 text-sm text-text-2"><span class="font-semibold">Key takeaway:</span> {{ aiExplanation.keyTakeaway }}</div>
+        </div>
+      </div>
+
+      <div class="mt-5 flex flex-col sm:flex-row gap-2">
+        <AppButton
+          v-if="!reveal"
+          class="w-full sm:w-auto"
+          :disabled="busy || selected === null"
+          @click="submit"
+        >
+          <span v-if="!busy">Reveal answer</span>
+          <span v-else>Submitting…</span>
+        </AppButton>
+
+        <AppButton
+          v-else
+          class="w-full sm:w-auto"
+          :disabled="qIndex >= questions.length - 1"
+          @click="next"
+        >
+          Next question
+        </AppButton>
+
+        <button class="btn btn-ghost w-full sm:w-auto" @click="backToBanks">Back to banks</button>
       </div>
     </AppCard>
 
-    <!-- Question Card -->
-    <AppCard v-else class="mt-3">
-      <div v-if="q" class="space-y-4">
-        <div class="h2">{{ q.prompt }}</div>
-
-        <div class="grid gap-2">
-          <button
-            v-for="(opt, idx) in (q.options || [])"
-            :key="idx"
-            class="btn btn-ghost justify-between"
-            :disabled="reveal || busy || timeUp"
-            :class="{
-              'ring-2 ring-accent/55': selectedIndex === idx,
-              'border-accent/50 bg-accent/10': reveal && idx === q.answerIndex,
-              'border-danger/50 bg-danger/10': reveal && selectedIndex === idx && idx !== q.answerIndex,
-            }"
-            @click="selectedIndex = idx"
-          >
-            <span class="text-left">{{ opt }}</span>
-            <span v-if="reveal && idx === q.answerIndex" class="badge">Correct</span>
-            <span v-else-if="reveal && selectedIndex === idx" class="badge">Your choice</span>
-          </button>
-        </div>
-
-        <div v-if="reveal" class="alert" :class="(session.attempts?.[q.id]?.isCorrect ? 'alert-ok' : 'alert-warn')">
-          <strong>{{ session.attempts?.[q.id]?.isCorrect ? 'Correct.' : 'Not quite.' }}</strong>
-          <span v-if="q.explain"> {{ q.explain }}</span>
-        </div>
-
-        <div class="flex flex-col sm:flex-row gap-2">
-          <AppButton :disabled="selectedIndex == null || reveal || busy || timeUp" @click="submit">
-            {{ busy ? 'Checking…' : 'Check answer' }}
-          </AppButton>
-          <AppButton variant="ghost" :disabled="!reveal" @click="next">
-            {{ isLast ? 'Finish' : 'Next' }}
-          </AppButton>
-        </div>
-      </div>
-
-      <div v-else class="sub">Loading…</div>
+    <AppCard v-else-if="!content.loading.bank" class="alert alert-ok" role="status">
+      No questions to practice right now.
     </AppCard>
   </div>
 </template>
