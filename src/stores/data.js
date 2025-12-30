@@ -6,6 +6,7 @@ import { toast } from '../utils/toast'
 const seed = () => ({
   progress: {
     streak: 0,
+    streakFreezes: 0,
     accuracy: 0,
     totalAnswered: 0,
     correctAnswered: 0,
@@ -22,6 +23,7 @@ const seed = () => ({
     levelUp: false,
     saved: { pastQuestions: [], materials: [], questions: [] },
     notifyUnread: 0,
+    missionsClaimable: 0,
   },
   answers: {}, // { [bankId]: { answeredIds:[], correctIds:[] } }
   courseProgress: [],
@@ -31,6 +33,7 @@ const seed = () => ({
   // Killer features
   leaderboard: { week: '', courseId: '', items: [], me: null },
   exam: { exam: null, questions: [], result: null },
+  missions: { weekStart: '', items: [], claimable: 0 },
 
   // JabuNotify
   notify: { channels: [], feed: [], unreadTotal: 0 },
@@ -54,6 +57,8 @@ export const useDataStore = defineStore('data', {
       if (cachedAns) this.answers = cachedAns
 
       await this.fetchProgress()
+      // Missions is optional; ignore if backend migration isn't on server yet.
+      try { await this.fetchMissions() } catch (_) {}
     },
 
     async fetchProgress() {
@@ -71,6 +76,47 @@ export const useDataStore = defineStore('data', {
       } finally {
         this.loading.progress = false
       }
+    },
+
+    // ----------------------------
+    // Weekly Missions + Streak Freeze
+    // ----------------------------
+    async fetchMissions() {
+      const res = await apiFetch('/gamification/missions')
+      const weekStart = res?.data?.weekStart || ''
+      const items = res?.data?.missions || []
+      const claimable = Number(res?.data?.claimable || 0)
+      this.missions = { weekStart, items, claimable }
+
+      // mirror into progress for quick badge updates
+      this.progress = { ...this.progress, streakFreezes: Number(res?.data?.streakFreezes || this.progress.streakFreezes || 0), missionsClaimable: claimable }
+      storage.set('progress', this.progress)
+      return this.missions
+    },
+
+    async claimMission(missionKey) {
+      const res = await apiFetch('/gamification/missions/claim', {
+        method: 'POST',
+        body: { missionKey }
+      })
+      const data = res?.data || {}
+      this.missions = {
+        weekStart: data.weekStart || this.missions.weekStart,
+        items: data.missions || this.missions.items,
+        claimable: Number(data.claimable || 0),
+      }
+
+      // apply server progress snapshot (xp/level/streakFreezes)
+      if (data.progress) this.applyProgress(data.progress)
+
+      const rxp = Number(data?.rewards?.xp || 0)
+      const rfz = Number(data?.rewards?.streakFreezes || 0)
+      if (rxp || rfz) {
+        toast(`Claimed: +${rxp} XP${rfz ? ` • +${rfz} Streak Freeze` : ''}`, 'ok')
+      } else {
+        toast('Mission claimed.', 'ok')
+      }
+      return this.missions
     },
 
     async toggleSave(kind, itemId) {
@@ -122,6 +168,9 @@ export const useDataStore = defineStore('data', {
       if (!p) return
       this.progress = { ...this.progress, ...p }
       storage.set('progress', this.progress)
+      if (typeof p.missionsClaimable === 'number') {
+        this.missions = { ...this.missions, claimable: Number(p.missionsClaimable) || 0 }
+      }
       if (p.levelUp) toast(`Level up! You are now Level ${p.level}.`, 'ok')
       if (Array.isArray(p.badgesNew) && p.badgesNew.length) {
         p.badgesNew.forEach((k) => toast(`Badge unlocked: ${String(k).replace(/_/g, ' ')}`, 'ok'))
@@ -139,6 +188,10 @@ export const useDataStore = defineStore('data', {
       if (p) {
         this.progress = { ...this.progress, ...p }
         storage.set('progress', this.progress)
+
+        if (typeof p.missionsClaimable === 'number') {
+          this.missions = { ...this.missions, claimable: Number(p.missionsClaimable) || 0 }
+        }
 
         // Toasts for motivation (safe even if backend doesn't send these)
         if (p.levelUp) toast(`Level up! You are now Level ${p.level}.`, 'ok')
@@ -214,6 +267,10 @@ export const useDataStore = defineStore('data', {
       if (p) {
         this.progress = { ...this.progress, ...p }
         storage.set('progress', this.progress)
+
+        if (typeof p.missionsClaimable === 'number') {
+          this.missions = { ...this.missions, claimable: Number(p.missionsClaimable) || 0 }
+        }
         if (p.levelUp) toast(`Level up! You are now Level ${p.level}.`, 'ok')
         if (Array.isArray(p.badgesNew) && p.badgesNew.length) {
           p.badgesNew.forEach((k) => toast(`Badge unlocked: ${k.replace(/_/g, ' ')}`, 'ok'))

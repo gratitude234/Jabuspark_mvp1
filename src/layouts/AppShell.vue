@@ -17,6 +17,7 @@ const isMatch = (prefix) => {
 const title = computed(() => route.meta?.title || 'JabuSpark')
 const notifyUnread = computed(() => Number(data.progress?.notifyUnread || 0))
 const groupPending = computed(() => Number(data.groups?.pending || 0))
+const missionsClaimable = computed(() => Number(data.missions?.claimable ?? data.progress?.missionsClaimable || 0))
 
 const navItems = computed(() => [
   { key: 'home', label: 'Home', to: '/dashboard', match: () => isMatch('/dashboard') },
@@ -54,7 +55,7 @@ function iconPath(key) {
 onMounted(async () => {
   // keep the bell badge fresh
   if (auth.isAuthed) {
-    await Promise.allSettled([data.fetchProgress(), data.fetchNotifyChannels(), data.fetchGroupBadge()])
+    await Promise.allSettled([data.fetchProgress(), data.fetchMissions(), data.fetchNotifyChannels(), data.fetchGroupBadge()])
   }
 })
 
@@ -116,6 +117,20 @@ onMounted(async () => {
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
             <span v-if="groupPending > 0" class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" />
+          </RouterLink>
+
+          <RouterLink
+            to="/missions"
+            class="btn btn-ghost btn-sm relative"
+            :class="isMatch('/missions') ? 'bg-white/[0.08] ring-1 ring-white/10' : ''"
+            aria-label="Weekly Missions"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="6" />
+              <circle cx="12" cy="12" r="2" />
+            </svg>
+            <span v-if="missionsClaimable > 0" class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" />
           </RouterLink>
 
           <RouterLink

@@ -20,6 +20,9 @@ import ExamHome from '../pages/ExamHome.vue'
 import ExamTake from '../pages/ExamTake.vue'
 import ExamResult from '../pages/ExamResult.vue'
 
+// ✅ NEW: Weekly Missions
+import Missions from '../pages/Missions.vue'
+
 // Admin + uploads
 import RepRequest from '../pages/RepRequest.vue'
 import Uploads from '../pages/Uploads.vue'
@@ -84,6 +87,7 @@ const routes = [
 
       // ✅ NEW killer features
       { path: 'leaderboard', component: Leaderboard, meta: { title: 'Leaderboard' } },
+      { path: 'missions', component: Missions, meta: { title: 'Weekly Missions' } },
       { path: 'exam', component: ExamHome, meta: { title: 'Exam Mode' } },
       { path: 'exam/:examId', component: ExamTake, props: true, meta: { title: 'Exam' } },
       { path: 'exam/:examId/result', component: ExamResult, props: true, meta: { title: 'Exam Result' } },
