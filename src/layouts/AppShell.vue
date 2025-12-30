@@ -17,7 +17,7 @@ const isMatch = (prefix) => {
 const title = computed(() => route.meta?.title || 'JabuSpark')
 const notifyUnread = computed(() => Number(data.progress?.notifyUnread || 0))
 const groupPending = computed(() => Number(data.groups?.pending || 0))
-const missionsClaimable = computed(() => Number(data.missions?.claimable ?? data.progress?.missionsClaimable || 0))
+const missionsClaimable = computed(() => Number(data.missions?.claimable ?? data.progress?.missionsClaimable ?? 0))
 
 const navItems = computed(() => [
   { key: 'home', label: 'Home', to: '/dashboard', match: () => isMatch('/dashboard') },
