@@ -48,6 +48,11 @@ import GroupChallengeNew from '../pages/GroupChallengeNew.vue'
 import ChallengeTake from '../pages/ChallengeTake.vue'
 import ChallengeResult from '../pages/ChallengeResult.vue'
 
+// ✅ 1v1 Duel (shareable challenge links)
+import DuelLobby from '../pages/DuelLobby.vue'
+import DuelTake from '../pages/DuelTake.vue'
+import DuelResult from '../pages/DuelResult.vue'
+
 const routes = [
   {
     path: '/auth',
@@ -84,6 +89,11 @@ const routes = [
       { path: 'groups/:groupId/new-challenge', component: GroupChallengeNew, props: true, meta: { title: 'New Challenge' } },
       { path: 'challenge/:challengeId', component: ChallengeTake, props: true, meta: { title: 'Challenge' } },
       { path: 'challenge/:challengeId/result', component: ChallengeResult, props: true, meta: { title: 'Challenge Result' } },
+
+      // ✅ 1v1 Duel
+      { path: 'duel/:code', component: DuelLobby, props: true, meta: { title: '1v1 Duel' } },
+      { path: 'duel/:code/take', component: DuelTake, props: true, meta: { title: 'Duel' } },
+      { path: 'duel/:code/result', component: DuelResult, props: true, meta: { title: 'Duel Result' } },
 
       // ✅ NEW killer features
       { path: 'leaderboard', component: Leaderboard, meta: { title: 'Leaderboard' } },
@@ -123,8 +133,12 @@ router.beforeEach((to) => {
   const publicPaths = ['/auth/login']
   const needsAuth = !publicPaths.includes(to.path)
 
-  if (needsAuth && !auth.isAuthed) return '/auth/login'
-  if (auth.isAuthed && auth.needsOnboarding && to.path !== '/onboarding') return '/onboarding'
+  if (needsAuth && !auth.isAuthed) {
+    return { path: '/auth/login', query: { next: to.fullPath } }
+  }
+  if (auth.isAuthed && auth.needsOnboarding && to.path !== '/onboarding') {
+    return { path: '/onboarding', query: { next: to.fullPath } }
+  }
 
   // Role-based guard
   const roles = to.meta?.roles
