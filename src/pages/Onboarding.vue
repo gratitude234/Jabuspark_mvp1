@@ -1,13 +1,12 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import AppCard from '../components/AppCard.vue'
 import AppSelect from '../components/AppSelect.vue'
 import AppButton from '../components/AppButton.vue'
 
-const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const catalog = useCatalogStore()
@@ -147,9 +146,7 @@ async function save() {
       courseIds: selectedCourseIds.value,
     })
 
-    const rawNext = route.query?.next
-    const nextPath = typeof rawNext === 'string' && rawNext.startsWith('/') ? rawNext : ''
-    router.push(nextPath || '/dashboard')
+    router.push('/dashboard')
   } catch (e) {
     error.value = e?.message || 'Failed to save. Please try again.'
   } finally {

@@ -27,8 +27,6 @@ const aiDifficulty = ref('mixed')
 const aiCount = ref(8)
 const aiError = ref('')
 
-const duelBusy = ref({})
-
 const myCourses = computed(() =>
   (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
 )
@@ -76,19 +74,6 @@ async function generateAiBank() {
     }
   } catch (e) {
     aiError.value = e?.message || 'Failed to generate AI bank'
-  }
-}
-
-async function challengeFriend(bankId) {
-  if (!bankId) return
-  duelBusy.value = { ...duelBusy.value, [bankId]: true }
-  try {
-    const duel = await data.createDuel({ bankId })
-    if (duel?.code) router.push(`/duel/${duel.code}`)
-  } catch (e) {
-    // data store already toasts on success; error handled by global fetch handler
-  } finally {
-    duelBusy.value = { ...duelBusy.value, [bankId]: false }
   }
 }
 </script>
@@ -250,7 +235,12 @@ async function challengeFriend(bankId) {
     </AppCard>
 
     <div v-else class="grid gap-3">
-      <div v-for="b in banks" :key="b.id" class="card card-pad">
+      <RouterLink
+        v-for="b in banks"
+        :key="b.id"
+        :to="`/practice/${b.id}`"
+        class="card card-press card-pad"
+      >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="text-base font-extrabold truncate">{{ b.title }}</div>
@@ -262,18 +252,11 @@ async function challengeFriend(bankId) {
           </div>
 
           <div class="flex flex-col items-end gap-2">
-            <RouterLink :to="`/practice/${b.id}`" class="badge">Start</RouterLink>
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm"
-              :disabled="!!duelBusy[b.id]"
-              @click="challengeFriend(b.id)"
-            >
-              {{ duelBusy[b.id] ? 'Creating…' : 'Challenge friend' }}
-            </button>
+            <span class="badge">Start</span>
+            <span class="text-xs text-text-3">Tap to open</span>
           </div>
         </div>
-      </div>
+      </RouterLink>
     </div>
   </div>
 </template>
