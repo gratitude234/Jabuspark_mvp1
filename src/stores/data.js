@@ -38,6 +38,9 @@ const seed = () => ({
   // JabuNotify
   notify: { channels: [], feed: [], unreadTotal: 0 },
   groups: { my: [], pending: 0, current: null, members: [], challenges: [], challenge: null, scoreboard: [], result: null },
+
+  // 1v1 Duel (shareable challenge links)
+  duel: { duel: null, participants: [], questions: [], result: null },
 })
 
 export const useDataStore = defineStore('data', {
@@ -203,25 +206,6 @@ export const useDataStore = defineStore('data', {
         this.answers = { ...this.answers, [bankId]: bankStats }
         storage.set('answers', this.answers)
       }
-      return res?.data
-    },
-
-    // ----------------------------
-    // Smart Review++ (graded spaced repetition)
-    // ----------------------------
-    async gradeReview({ bankId, questionId, rating, isCorrect, secondsSpent = 0 }) {
-      const res = await apiFetch('/review/grade', {
-        method: 'POST',
-        body: { bankId, questionId, rating, isCorrect, secondsSpent }
-      })
-
-      // Keep progress badge in sync without a full refresh
-      const due = res?.data?.dueReviews
-      if (typeof due === 'number') {
-        this.progress = { ...this.progress, dueReviews: due }
-        storage.set('progress', this.progress)
-      }
-
       return res?.data
     },
 
@@ -450,6 +434,64 @@ export const useDataStore = defineStore('data', {
       const res = await apiFetch(`/challenge/scoreboard?challengeId=${encodeURIComponent(challengeId)}`)
       this.groups.scoreboard = res?.data?.items || []
       return this.groups.scoreboard
+    },
+
+    // ----------------------------
+    // 1v1 Duel (shareable challenge links)
+    // ----------------------------
+    async createDuel({ bankId, questionCount = 10, durationMins = 10 } = {}) {
+      const res = await apiFetch('/duel/create', {
+        method: 'POST',
+        body: { bankId, questionCount, durationMins },
+      })
+      const duel = res?.data?.duel || null
+      if (duel) {
+        this.duel = { ...this.duel, duel, participants: [], questions: [], result: null }
+        toast('Duel link created. Share it with a friend.', 'ok')
+      }
+      return duel
+    },
+
+    async getDuel(code) {
+      const res = await apiFetch(`/duel/get?code=${encodeURIComponent(code)}`)
+      this.duel = {
+        ...this.duel,
+        duel: res?.data?.duel || null,
+        participants: res?.data?.participants || [],
+      }
+      return res?.data
+    },
+
+    async startDuel(code) {
+      const res = await apiFetch(`/duel/start?code=${encodeURIComponent(code)}`)
+      this.duel = {
+        ...this.duel,
+        duel: res?.data?.duel || this.duel.duel,
+        participants: res?.data?.participants || this.duel.participants,
+        questions: res?.data?.questions || [],
+      }
+      return res?.data
+    },
+
+    async submitDuel({ code, answers = {}, secondsTotal = 0 } = {}) {
+      const res = await apiFetch('/duel/submit', {
+        method: 'POST',
+        body: { code, answers, secondsTotal },
+      })
+      if (res?.data?.rewards?.xp) toast(`+${Number(res.data.rewards.xp)} XP`, 'ok')
+      this.duel = { ...this.duel, result: res?.data || null }
+      return res?.data
+    },
+
+    async getDuelResult(code) {
+      const res = await apiFetch(`/duel/result?code=${encodeURIComponent(code)}`)
+      this.duel = {
+        ...this.duel,
+        duel: res?.data?.duel || this.duel.duel,
+        participants: res?.data?.participants || this.duel.participants,
+        result: res?.data || null,
+      }
+      return res?.data
     },
 
     async adminCreateNotifyPost({ channelId, title, body, linkUrl = '', isPinned = false } = {}) {

@@ -1,12 +1,13 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import AppInput from '../components/AppInput.vue'
 import AppButton from '../components/AppButton.vue'
 import LogoMark from '../components/LogoMark.vue'
 
 const auth = useAuthStore()
+const route = useRoute()
 const router = useRouter()
 
 const mode = ref('login') // 'login' | 'register'
@@ -91,7 +92,13 @@ async function submit() {
       await auth.register(payload)
     }
 
-    router.push(auth.needsOnboarding ? '/onboarding' : '/dashboard')
+    const rawNext = route.query?.next
+    const nextPath = typeof rawNext === 'string' && rawNext.startsWith('/') ? rawNext : ''
+    if (auth.needsOnboarding) {
+      router.push(nextPath ? { path: '/onboarding', query: { next: nextPath } } : '/onboarding')
+    } else {
+      router.push(nextPath || '/dashboard')
+    }
   } catch (err) {
     // Keep server message if present, but avoid leaking weird objects
     errors.form = err?.message || 'Authentication failed. Please try again.'

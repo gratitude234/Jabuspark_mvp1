@@ -5,7 +5,6 @@ import { useDataStore } from '../stores/data'
 import { useAiStore } from '../stores/ai'
 import AppCard from '../components/AppCard.vue'
 import AppButton from '../components/AppButton.vue'
-import { toast } from '../utils/toast'
 
 const router = useRouter()
 const data = useDataStore()
@@ -16,12 +15,6 @@ const error = ref('')
 const qIndex = ref(0)
 const selected = ref(null)
 const reveal = ref(false)
-
-// Smart Review++ grading
-const grading = ref(false)
-const graded = ref(false)
-const lastSecondsSpent = ref(0)
-const lastIsCorrect = ref(false)
 
 const aiBusy = ref(false)
 const aiError = ref('')
@@ -38,10 +31,6 @@ const isDone = computed(() => dueCount.value > 0 && qIndex.value >= dueCount.val
 function resetPerQuestion() {
   selected.value = null
   reveal.value = false
-  grading.value = false
-  graded.value = false
-  lastSecondsSpent.value = 0
-  lastIsCorrect.value = false
   aiError.value = ''
   aiExplanation.value = null
   startedAt.value = Date.now()
@@ -86,52 +75,11 @@ async function submit() {
       selectedIndex: selected.value,
       secondsSpent,
     })
-    lastSecondsSpent.value = secondsSpent
-    lastIsCorrect.value = selected.value === current.value.answerIndex
     reveal.value = true
   } catch (e) {
     error.value = e?.message || 'Failed to submit answer.'
   } finally {
     loading.value = false
-  }
-}
-
-async function grade(rating) {
-  if (!current.value) return
-  if (!reveal.value) return
-  if (grading.value || graded.value) return
-
-  grading.value = true
-  error.value = ''
-  try {
-    const out = await data.gradeReview({
-      bankId: current.value.bankId,
-      questionId: current.value.id,
-      rating,
-      isCorrect: lastIsCorrect.value,
-      secondsSpent: lastSecondsSpent.value,
-    })
-
-    const sched = out?.schedule || null
-    if (sched) {
-      const nextIn = sched.rating === 'again' ? 'in ~10 mins' : `in ${sched.intervalDays} day(s)`
-      toast(`Saved: ${String(sched.rating).toUpperCase()} • Next review ${nextIn}`, 'ok')
-    } else {
-      toast('Saved review grade.', 'ok')
-    }
-
-    // Remove this item from the local due list so the next question loads immediately.
-    try {
-      data.reviewQueue.splice(qIndex.value, 1)
-    } catch (_) {
-      // ignore
-    }
-
-    graded.value = true
-  } catch (e) {
-    error.value = e?.message || 'Failed to save grade.'
-  } finally {
-    grading.value = false
   }
 }
 
@@ -173,9 +121,9 @@ onUnmounted(() => {
     <AppCard>
       <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div class="min-w-0">
-          <div class="h1">Smart Review++</div>
+          <div class="h1">Smart Review</div>
           <p class="sub mt-1">
-            Answer the question, then grade it (Again/Hard/Good/Easy) to control when you’ll see it next.
+            Review questions you previously missed. The system schedules the next time you’ll see each question.
           </p>
 
           <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -259,24 +207,14 @@ onUnmounted(() => {
       </div>
 
       <div class="mt-4 flex flex-col sm:flex-row gap-2">
-        <AppButton v-if="!reveal" :disabled="loading || selected === null" @click="submit">
+        <AppButton :disabled="loading || selected === null || reveal" @click="submit">
           Submit
         </AppButton>
-        <AppButton variant="ghost" :disabled="aiBusy" @click="explainWithAi">
+        <AppButton v-if="reveal" variant="ghost" @click="next">Next</AppButton>
+        <AppButton v-else variant="ghost" :disabled="aiBusy" @click="explainWithAi">
           <span v-if="!aiBusy">Explain with AI</span>
           <span v-else>Thinking…</span>
         </AppButton>
-      </div>
-
-      <div v-if="reveal" class="mt-4">
-        <div class="text-sm font-semibold">Grade this review</div>
-        <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <AppButton variant="danger" :disabled="grading" @click="grade('again')">Again</AppButton>
-          <AppButton variant="ghost" :disabled="grading" @click="grade('hard')">Hard</AppButton>
-          <AppButton :disabled="grading" @click="grade('good')">Good</AppButton>
-          <AppButton :disabled="grading" @click="grade('easy')">Easy</AppButton>
-        </div>
-        <p class="sub mt-2">Tip: choose “Again” if you had to guess. “Easy” schedules it further away.</p>
       </div>
 
       <div v-if="reveal && current.explanation" class="alert alert-ok mt-4" role="status">
