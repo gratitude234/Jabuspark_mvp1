@@ -5,7 +5,6 @@ import { useDataStore } from '../stores/data'
 import { useContentStore } from '../stores/content'
 import AppCard from '../components/AppCard.vue'
 import StatPill from '../components/StatPill.vue'
-import { bankMeta } from '../utils/bankKind'
 
 const auth = useAuthStore()
 const data = useDataStore()
@@ -37,25 +36,16 @@ async function setGoal(g) {
   await data.setDailyGoal(g)
 }
 
-const search = ref('')
-const banksFiltered = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  const all = content.banks || []
-  if (!q) return all
-  return all.filter(b => {
-    const hay = [b.title, bankMeta(b).label].filter(Boolean).join(' ').toLowerCase()
-    return hay.includes(q)
-  })
-})
-
-const bankLabel = (b) => bankMeta(b).label
+/** Quick actions */
+const notifyCount = computed(() => Number(data.progress?.notifyUnread || 0))
+const pendingGroups = computed(() => Number(data.groups?.pending || 0))
 
 const quickActions = computed(() => [
   {
     to: '/practice',
     label: 'Practice',
     sub: 'Quick drills',
-    badge: false,
+    count: 0,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -66,7 +56,7 @@ const quickActions = computed(() => [
     to: '/materials',
     label: 'Materials',
     sub: 'PDF notes',
-    badge: false,
+    count: 0,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -79,7 +69,7 @@ const quickActions = computed(() => [
     to: '/past-questions',
     label: 'Past Questions',
     sub: 'Exam prep',
-    badge: false,
+    count: 0,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -92,7 +82,7 @@ const quickActions = computed(() => [
     to: '/saved',
     label: 'Saved',
     sub: 'Bookmarks',
-    badge: false,
+    count: 0,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -102,8 +92,8 @@ const quickActions = computed(() => [
   {
     to: '/notify',
     label: 'Updates',
-    sub: `${data.progress?.notifyUnread || 0} new`,
-    badge: (data.progress?.notifyUnread || 0) > 0,
+    sub: 'Announcements',
+    count: notifyCount.value,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -114,8 +104,8 @@ const quickActions = computed(() => [
   {
     to: '/groups',
     label: 'Groups',
-    sub: `${data.groups?.pending || 0} pending`,
-    badge: (data.groups?.pending || 0) > 0,
+    sub: 'Study rooms',
+    count: pendingGroups.value,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -127,18 +117,54 @@ const quickActions = computed(() => [
   }
 ])
 
+/** Practice banks */
+const search = ref('')
+const bankFilter = ref('all')
+
+const bankFilters = [
+  { key: 'all', label: 'All' },
+  { key: 'quick', label: 'Quick' },
+  { key: 'exam', label: 'Exam' },
+  { key: 'pastq', label: 'PastQ' }
+]
+
+function normalizeMode(mode) {
+  return String(mode || '').toLowerCase()
+}
+
+const banksFiltered = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  const all = content.banks || []
+
+  let list = all
+  if (q) list = list.filter(b => String(b.title || '').toLowerCase().includes(q))
+
+  const f = bankFilter.value
+  if (f !== 'all') {
+    list = list.filter(b => {
+      const m = normalizeMode(b.mode)
+      if (f === 'quick') return m.includes('quick')
+      if (f === 'exam') return m.includes('exam')
+      if (f === 'pastq') return m.includes('past') || m.includes('pq') || m.includes('pastq')
+      return true
+    })
+  }
+
+  return list
+})
+
 onMounted(async () => {
   if (!auth.isAuthed) return
   await Promise.allSettled([
-    data.fetchProgress(),
-    content.fetchBanks({ courseId: firstCourseId.value || '' })
+    data.fetchProgress?.(),
+    content.fetchBanks?.({ courseId: firstCourseId.value || '' })
   ])
 })
 </script>
 
 <template>
   <div class="container-app page">
-    <!-- Header (no big card = cleaner & more premium) -->
+    <!-- Header -->
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0">
         <div class="kicker">Campus-ready study hub</div>
@@ -177,11 +203,10 @@ onMounted(async () => {
       </div>
     </AppCard>
 
-    <!-- Main grid -->
-    <div class="grid gap-4 lg:grid-cols-12">
-      <!-- LEFT -->
-      <div class="lg:col-span-7 space-y-4">
-        <!-- Resume hero -->
+    <!-- ✅ Mobile: Resume -> Quick Actions -> Progress (Desktop stays Resume+Progress, then Quick Actions) -->
+    <div class="flex flex-col gap-4 lg:grid lg:grid-cols-12">
+      <!-- Resume (first everywhere) -->
+      <div class="order-1 lg:order-none lg:col-span-7 space-y-4">
         <AppCard tone="card">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -231,40 +256,10 @@ onMounted(async () => {
             </div>
           </div>
         </AppCard>
-
-        <!-- Quick actions (tiles; no truncation) -->
-        <div
-          class="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4
-                 sm:mx-0 sm:px-0 sm:overflow-visible sm:grid sm:grid-cols-3
-                 lg:grid-cols-6"
-        >
-          <RouterLink
-            v-for="a in quickActions"
-            :key="a.to"
-            :to="a.to"
-            class="tile card-press p-3 sm:p-4 relative shrink-0 w-[11.5rem] sm:w-auto"
-            :aria-label="`Go to ${a.label}`"
-          >
-            <div class="flex items-start gap-3">
-              <div class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center relative">
-                <span v-html="a.icon" />
-                <span
-                  v-if="a.badge"
-                  class="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface"
-                />
-              </div>
-
-              <div class="min-w-0">
-                <div class="text-sm font-extrabold clamp-2 leading-snug">{{ a.label }}</div>
-                <div class="mt-1 text-xs text-text-3 clamp-2">{{ a.sub }}</div>
-              </div>
-            </div>
-          </RouterLink>
-        </div>
       </div>
 
-      <!-- RIGHT -->
-      <div class="lg:col-span-5">
+      <!-- Progress (desktop 2nd, mobile 3rd) -->
+      <div class="order-3 lg:order-none lg:col-span-5">
         <AppCard tone="card" class="h-full">
           <div class="flex items-center justify-between gap-3">
             <div>
@@ -284,7 +279,11 @@ onMounted(async () => {
           <div v-else class="mt-4 grid grid-cols-2 gap-2">
             <StatPill label="Answered" :value="data.progress?.totalAnswered || 0" />
             <StatPill label="Accuracy" :value="(data.progress?.accuracy ?? 0) + '%'" />
-            <StatPill label="Today" :value="data.progress?.todayAnswered || 0" :hint="`Goal ${data.progress?.dailyGoal || 10}`" />
+            <StatPill
+              label="Today"
+              :value="data.progress?.todayAnswered || 0"
+              :hint="`Goal ${data.progress?.dailyGoal || 10}`"
+            />
             <StatPill
               label="Saved"
               :value="(data.progress?.saved?.pastQuestions?.length || 0) + (data.progress?.saved?.materials?.length || 0)"
@@ -295,6 +294,34 @@ onMounted(async () => {
             {{ data.error }}
           </div>
         </AppCard>
+      </div>
+
+      <!-- Quick actions (desktop below row; mobile between Resume & Progress) -->
+      <div class="order-2 lg:order-none lg:col-span-12">
+        <div class="grid gap-2 sm:gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+          <RouterLink
+            v-for="a in quickActions"
+            :key="a.to"
+            :to="a.to"
+            class="tile card-press p-3 sm:p-4 relative"
+            :aria-label="`Go to ${a.label}`"
+          >
+            <div class="flex items-start gap-3">
+              <div class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center shrink-0">
+                <span v-html="a.icon" />
+              </div>
+
+              <div class="min-w-0">
+                <div class="text-sm font-extrabold clamp-2 leading-snug">{{ a.label }}</div>
+                <div class="mt-1 text-xs text-text-3 clamp-2">{{ a.sub }}</div>
+              </div>
+            </div>
+
+            <span v-if="(a.count || 0) > 0" class="absolute top-3 right-3 count-badge">
+              {{ a.count > 99 ? '99+' : a.count }}
+            </span>
+          </RouterLink>
+        </div>
       </div>
     </div>
 
@@ -308,8 +335,21 @@ onMounted(async () => {
         <RouterLink to="/practice" class="btn btn-ghost">See all</RouterLink>
       </div>
 
-      <div class="mt-4">
+      <div class="mt-4 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
         <input v-model="search" class="input" placeholder="Search banks… e.g., ANA 201" />
+
+        <div class="seg w-full sm:w-auto justify-between sm:justify-start">
+          <button
+            v-for="f in bankFilters"
+            :key="f.key"
+            type="button"
+            class="seg-btn"
+            :class="bankFilter === f.key ? 'seg-btn--active' : 'seg-btn--inactive'"
+            @click="bankFilter = f.key"
+          >
+            {{ f.label }}
+          </button>
+        </div>
       </div>
 
       <div class="divider my-4" />
@@ -321,7 +361,7 @@ onMounted(async () => {
       </div>
 
       <div v-else-if="banksFiltered.length === 0" class="alert alert-ok" role="status">
-        No matching banks. Try a different keyword.
+        No matching banks. Try a different keyword or filter.
       </div>
 
       <div v-else class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -334,7 +374,7 @@ onMounted(async () => {
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="text-sm font-extrabold clamp-2">{{ b.title }}</div>
-              <div class="text-xs text-text-3 mt-1">{{ b.questionCount }} questions • {{ bankLabel(b) }}</div>
+              <div class="text-xs text-text-3 mt-1">{{ b.questionCount }} questions • {{ b.mode }}</div>
             </div>
             <span class="badge">Start</span>
           </div>
