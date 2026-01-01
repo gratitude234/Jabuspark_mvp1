@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { apiFetch } from '../utils/api'
@@ -9,6 +9,7 @@ import AppSelect from '../components/AppSelect.vue'
 import AppButton from '../components/AppButton.vue'
 import AppInput from '../components/AppInput.vue'
 
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const catalog = useCatalogStore()
@@ -17,12 +18,19 @@ const busy = ref(false)
 const error = ref('')
 const ok = ref('')
 
-const facultyId = ref(auth.user?.profile?.facultyId || null)
-const departmentId = ref(auth.user?.profile?.departmentId || null)
+// Prefill from query params (when redirected from Department Setup)
+const qFacultyId = typeof route.query.facultyId === 'string' ? route.query.facultyId : ''
+const qDepartmentId = typeof route.query.departmentId === 'string' ? route.query.departmentId : ''
+const qLevel = typeof route.query.level === 'string' ? Number(route.query.level) : null
+
+const facultyId = ref(qFacultyId || auth.user?.profile?.facultyId || null)
+const departmentId = ref(qDepartmentId || auth.user?.profile?.departmentId || null)
 const departmentName = ref('')
-const level = ref(auth.user?.profile?.level || 200)
+const level = ref(qLevel || auth.user?.profile?.level || 200)
 const courseCodes = ref('')
 const phone = ref('')
+
+const initializing = ref(true)
 
 const levelOptions = [
   { value: 100, label: '100 Level' },
@@ -37,9 +45,14 @@ const facultyOptions = computed(() => (catalog.faculties || []).map(f => ({ valu
 const departmentOptions = computed(() => (catalog.departments || []).map(d => ({ value: d.id, label: d.name })))
 
 watch(facultyId, async (next) => {
-  departmentId.value = null
+  if (!initializing.value) departmentId.value = null
   if (!next) return
   await catalog.fetchDepartments({ facultyId: next })
+
+  // If query had a departmentId, re-apply it after departments load
+  if (initializing.value && qDepartmentId) {
+    departmentId.value = qDepartmentId
+  }
 })
 
 async function submit() {
@@ -75,7 +88,12 @@ async function submit() {
 
 onMounted(async () => {
   await catalog.bootstrap()
-  if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
+
+  if (facultyId.value) {
+    await catalog.fetchDepartments({ facultyId: facultyId.value })
+  }
+
+  initializing.value = false
 })
 </script>
 
@@ -135,7 +153,16 @@ onMounted(async () => {
         <AppInput id="phone" v-model="phone" placeholder="e.g., 0803xxxxxxx" />
       </div>
 
-      <div v-if="ok" class="alert alert-ok mt-4" role="status">{{ ok }}</div>
+      <div v-if="ok" class="alert alert-ok mt-4" role="status">
+        {{ ok }}
+        <div class="mt-3 flex flex-col sm:flex-row gap-2">
+          <RouterLink to="/onboarding/gns" class="btn btn-primary w-full sm:w-auto">Start GNS now</RouterLink>
+          <button type="button" class="btn btn-ghost w-full sm:w-auto" @click="router.push('/onboarding')">
+            Back to onboarding
+          </button>
+        </div>
+      </div>
+
       <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
 
       <div class="mt-6 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">

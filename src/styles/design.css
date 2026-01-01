@@ -12,7 +12,7 @@
 @layer components {
   /* ---------- Layout primitives ---------- */
   .container-app { @apply mx-auto w-full max-w-6xl px-4; }
-  .page { @apply space-y-5 sm:space-y-6; }
+  .page { @apply space-y-5 sm:space-y-6; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
   .section { @apply space-y-3; }
   .row { @apply flex items-center justify-between gap-3; }
   .divider { @apply h-px w-full bg-white/10; }
@@ -25,11 +25,56 @@
   .sub { @apply text-sm text-text-2 leading-relaxed; }
   .muted { @apply text-text-3; }
 
-  /* ---------- Surfaces ---------- */
-  .glass { @apply bg-surface-3/60 backdrop-blur-xl border border-stroke/60; }
-  .card { @apply glass rounded-xl2 shadow-card; }
+  /* ---------- Utility: clamp text (fixes P..., M... truncation) ---------- */
+  .clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* ---------- Surfaces (premium depth; fewer borders) ---------- */
+  .glass { @apply bg-surface-3/55 backdrop-blur-xl; }
+
+  /* Main cards */
+  .card {
+    @apply glass rounded-xl2;
+    border: 1px solid rgba(255,255,255,0.07);
+    box-shadow: 0 12px 34px rgba(0,0,0,0.45);
+  }
+
+  /* Inner surfaces (use instead of nesting full cards) */
+  .panel {
+    @apply rounded-xl2;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+  }
+
+  /* Flat: almost no border */
+  .card-flat {
+    @apply rounded-xl2;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.04);
+    box-shadow: none;
+  }
+
+  /* Tiles: stats + quick actions */
+  .tile {
+    @apply rounded-xl2;
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255,255,255,0.055);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+  }
+
   .card-pad { @apply p-4 sm:p-5; }
-  .card-press { @apply transition duration-200 hover:bg-white/[0.06] active:bg-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50; }
+
+  /* Press feedback */
+  .card-press {
+    @apply transition duration-200 hover:bg-white/[0.05] active:bg-white/[0.08];
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50;
+    transform: translateZ(0);
+  }
 
   /* ---------- Buttons ---------- */
   .btn {

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useDataStore } from '../stores/data'
 import { useContentStore } from '../stores/content'
@@ -11,7 +11,6 @@ const data = useDataStore()
 const content = useContentStore()
 
 const profile = computed(() => auth.user?.profile || {})
-
 const hasProfile = computed(() => {
   const p = profile.value || {}
   return (p.level || 0) > 0 && (p.courseIds || []).length > 0
@@ -27,23 +26,30 @@ const greeting = computed(() => {
 
 const goal = computed(() => Number(data.progress?.dailyGoal || 10))
 const doneToday = computed(() => Number(data.progress?.todayAnswered || 0))
-
 const goalPct = computed(() => {
   if (!goal.value) return 0
   return Math.max(0, Math.min(100, Math.round((doneToday.value / goal.value) * 100)))
 })
 
 const goalOptions = [10, 20, 50]
-
 async function setGoal(g) {
   await data.setDailyGoal(g)
 }
+
+const search = ref('')
+const banksFiltered = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  const all = content.banks || []
+  if (!q) return all
+  return all.filter(b => (b.title || '').toLowerCase().includes(q))
+})
 
 const quickActions = computed(() => [
   {
     to: '/practice',
     label: 'Practice',
     sub: 'Quick drills',
+    badge: false,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -54,6 +60,7 @@ const quickActions = computed(() => [
     to: '/materials',
     label: 'Materials',
     sub: 'PDF notes',
+    badge: false,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -64,8 +71,9 @@ const quickActions = computed(() => [
   },
   {
     to: '/past-questions',
-    label: 'Past Q',
+    label: 'Past Questions',
     sub: 'Exam prep',
+    badge: false,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -78,6 +86,7 @@ const quickActions = computed(() => [
     to: '/saved',
     label: 'Saved',
     sub: 'Bookmarks',
+    badge: false,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -87,8 +96,8 @@ const quickActions = computed(() => [
   {
     to: '/notify',
     label: 'Updates',
-    sub: `${data.progress.notifyUnread || 0} new`,
-    badge: (data.progress.notifyUnread || 0) > 0,
+    sub: `${data.progress?.notifyUnread || 0} new`,
+    badge: (data.progress?.notifyUnread || 0) > 0,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-accent">
@@ -114,7 +123,6 @@ const quickActions = computed(() => [
 
 onMounted(async () => {
   if (!auth.isAuthed) return
-
   await Promise.allSettled([
     data.fetchProgress(),
     content.fetchBanks({ courseId: firstCourseId.value || '' })
@@ -123,206 +131,203 @@ onMounted(async () => {
 </script>
 
 <template>
-  <!-- Better spacing + max width for laptop -->
-  <div class="page mx-auto max-w-6xl px-3 sm:px-4 lg:px-6 space-y-3 sm:space-y-4">
+  <div class="container-app page">
+    <!-- Header (no big card = cleaner & more premium) -->
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <div class="kicker">Campus-ready study hub</div>
+        <div class="h1 mt-1">{{ greeting }}</div>
+        <p class="sub mt-2">
+          {{
+            hasProfile
+              ? 'Resume quickly, hit your goal, and keep your streak.'
+              : 'Finish quick setup (GNS or department) to unlock personalised study.'
+          }}
+        </p>
+      </div>
+
+      <RouterLink to="/profile" class="icon-btn" aria-label="Open profile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+          <path d="M20 21a8 8 0 0 0-16 0" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+      </RouterLink>
+    </div>
+
     <!-- Onboarding banner -->
-    <AppCard v-if="auth.needsOnboarding" class="relative overflow-hidden">
+    <AppCard v-if="auth.needsOnboarding" tone="card" class="relative overflow-hidden">
       <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/12 via-transparent to-transparent" />
       <div class="relative">
-        <div class="kicker">Welcome to JabuSpark</div>
-        <div class="h1 mt-1">Set up your study profile</div>
-        <p class="sub mt-2 max-w-[56ch]">
-          Tell us your faculty, department, and level so we can personalise practice banks, materials, and past questions for you.
+        <div class="h2">Set up your study profile</div>
+        <p class="sub mt-2 max-w-[60ch]">
+          Choose your faculty, department, and level so we can recommend banks, materials, and past questions.
         </p>
 
-        <div class="mt-5 flex flex-col sm:flex-row gap-2">
+        <div class="mt-4 flex flex-col sm:flex-row gap-2">
           <RouterLink to="/onboarding" class="btn btn-primary btn-lg">Continue setup</RouterLink>
           <RouterLink to="/practice" class="btn btn-ghost btn-lg">Explore practice</RouterLink>
         </div>
       </div>
     </AppCard>
 
-    <!-- Main hero -->
-    <AppCard class="relative overflow-hidden">
-      <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/14 via-transparent to-transparent" />
-
-      <div class="relative">
-        <!-- Header -->
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <div class="kicker">Campus-ready study hub</div>
-            <div class="h1 mt-1 truncate">{{ greeting }}</div>
-            <p class="sub mt-2">
-              {{
-                hasProfile
-                  ? 'Pick up where you left off and keep your streak going.'
-                  : 'Finish quick setup (GNS or department) to unlock personalised study.'
-              }}
-            </p>
+    <!-- Main grid -->
+    <div class="grid gap-4 lg:grid-cols-12">
+      <!-- LEFT -->
+      <div class="lg:col-span-7 space-y-4">
+        <!-- Resume hero -->
+        <AppCard tone="card">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="h2">Resume</div>
+              <p class="sub mt-1 clamp-2">
+                {{ quickBank ? `Continue: ${quickBank.title}` : 'Pick a bank and start drilling.' }}
+              </p>
+            </div>
+            <span class="badge">{{ data.progress?.streak || 0 }}🔥</span>
           </div>
 
-          <RouterLink to="/profile" class="icon-btn" aria-label="Open profile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
-              <path d="M20 21a8 8 0 0 0-16 0" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-          </RouterLink>
-        </div>
+          <div class="mt-4">
+            <div class="flex items-center justify-between text-xs text-text-3">
+              <span>Today</span>
+              <span>{{ doneToday }} / {{ goal }}</span>
+            </div>
 
-        <!-- Responsive layout:
-             Mobile = stacked, Desktop = 2 columns -->
-        <div class="mt-4 lg:grid lg:grid-cols-12 lg:gap-4">
-          <!-- Left column -->
-          <div class="lg:col-span-7 flex flex-col gap-3">
-            <!-- Quick actions: swipe on mobile, grid on larger screens -->
-            <div
-              class="flex gap-2 overflow-x-auto pb-1 -mx-3 px-3
-                     sm:mx-0 sm:px-0 sm:overflow-visible sm:grid sm:grid-cols-3
-                     lg:grid-cols-6"
-            >
+            <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+              <div class="h-full bg-accent transition-all duration-200" :style="{ width: goalPct + '%' }" />
+            </div>
+
+            <div class="mt-4 flex flex-wrap items-center gap-2">
+              <span class="badge">Level {{ data.progress?.level || 1 }} • {{ data.progress?.xp || 0 }} XP</span>
+              <div class="flex-1" />
+              <div class="seg">
+                <button
+                  v-for="g in goalOptions"
+                  :key="g"
+                  type="button"
+                  class="seg-btn"
+                  :class="goal === g ? 'seg-btn--active' : 'seg-btn--inactive'"
+                  @click="setGoal(g)"
+                >
+                  {{ g }}
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-4 flex flex-col sm:flex-row gap-2">
               <RouterLink
-                v-for="a in quickActions"
-                :key="a.to"
-                :to="a.to"
-                class="card card-press card-pad relative shrink-0 w-[11rem] sm:w-auto"
-                :aria-label="`Go to ${a.label}`"
+                :to="quickBank ? `/practice/${quickBank.id}` : '/practice'"
+                class="btn btn-primary btn-lg"
               >
-                <div class="flex items-center gap-2">
-                  <span class="h-9 w-9 rounded-xl2 bg-accent/15 grid place-items-center relative">
-                    <span v-html="a.icon" />
-                    <span
-                      v-if="a.badge"
-                      class="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface"
-                    />
-                  </span>
-                  <div class="min-w-0">
-                    <div class="text-sm font-extrabold truncate">{{ a.label }}</div>
-                    <div class="text-xs text-text-3 truncate">{{ a.sub }}</div>
-                  </div>
-                </div>
+                {{ quickBank ? 'Resume practice' : 'Start practice' }}
               </RouterLink>
-            </div>
-
-            <!-- Today's focus -->
-            <div class="card card-pad">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <div class="text-sm font-extrabold">Today’s focus</div>
-                  <p class="sub mt-1">
-                    Do <b>{{ data.progress.dailyGoal }}</b> questions today, then review your wrong answers.
-                  </p>
-                </div>
-                <span class="badge">{{ data.progress.streak }}🔥</span>
-              </div>
-
-              <div class="mt-3">
-                <div class="flex items-center justify-between text-xs text-text-3">
-                  <span>Progress</span>
-                  <span>{{ data.progress.todayAnswered }} / {{ data.progress.dailyGoal }}</span>
-                </div>
-
-                <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
-                  <div class="h-full bg-accent transition-all duration-200" :style="{ width: goalPct + '%' }" />
-                </div>
-
-                <!-- Goal picker: looks like a segmented control -->
-                <div class="mt-3 flex flex-wrap gap-2 items-center">
-                  <button
-                    v-for="g in goalOptions"
-                    :key="g"
-                    type="button"
-                    class="btn btn-sm"
-                    :class="goal === g ? 'btn-primary' : 'btn-ghost'"
-                    @click="setGoal(g)"
-                  >
-                    Goal {{ g }}
-                  </button>
-
-                  <div class="flex-1" />
-                  <span class="badge">Level {{ data.progress.level }} • {{ data.progress.xp }} XP</span>
-                </div>
-
-                <div class="mt-3 flex flex-col sm:flex-row gap-2">
-                  <RouterLink
-                    :to="quickBank ? `/practice/${quickBank.id}` : '/practice'"
-                    class="btn btn-primary"
-                  >
-                    {{ quickBank ? 'Continue practice' : 'Browse banks' }}
-                  </RouterLink>
-                  <RouterLink to="/materials" class="btn btn-ghost">Open materials</RouterLink>
-                </div>
-              </div>
+              <RouterLink to="/materials" class="btn btn-ghost btn-lg">Open materials</RouterLink>
             </div>
           </div>
+        </AppCard>
 
-          <!-- Right column -->
-          <div class="lg:col-span-5 mt-3 lg:mt-0">
-            <div class="card card-pad h-full">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <div class="text-sm font-extrabold">Progress snapshot</div>
-                  <div class="text-xs text-text-3">Updates as you practise.</div>
-                </div>
-                <div class="badge">{{ data.progress.streak }}🔥</div>
-              </div>
-
-              <div v-if="data.loading.progress" class="mt-4 grid grid-cols-3 gap-2">
-                <div class="skeleton h-16" />
-                <div class="skeleton h-16" />
-                <div class="skeleton h-16" />
-              </div>
-
-              <div v-else class="mt-4 grid grid-cols-3 gap-2">
-                <StatPill label="Answered" :value="data.progress.totalAnswered" />
-                <StatPill label="Accuracy" :value="data.progress.accuracy + '%'" />
-                <StatPill
-                  label="Saved"
-                  :value="(data.progress.saved?.pastQuestions?.length || 0) + (data.progress.saved?.materials?.length || 0)"
+        <!-- Quick actions (tiles; no truncation) -->
+        <div
+          class="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4
+                 sm:mx-0 sm:px-0 sm:overflow-visible sm:grid sm:grid-cols-3
+                 lg:grid-cols-6"
+        >
+          <RouterLink
+            v-for="a in quickActions"
+            :key="a.to"
+            :to="a.to"
+            class="tile card-press p-3 sm:p-4 relative shrink-0 w-[11.5rem] sm:w-auto"
+            :aria-label="`Go to ${a.label}`"
+          >
+            <div class="flex items-start gap-3">
+              <div class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center relative">
+                <span v-html="a.icon" />
+                <span
+                  v-if="a.badge"
+                  class="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface"
                 />
               </div>
 
-              <div v-if="data.error" class="alert alert-warn mt-3" role="alert">
-                {{ data.error }}
+              <div class="min-w-0">
+                <div class="text-sm font-extrabold clamp-2 leading-snug">{{ a.label }}</div>
+                <div class="mt-1 text-xs text-text-3 clamp-2">{{ a.sub }}</div>
               </div>
             </div>
-          </div>
+          </RouterLink>
         </div>
       </div>
-    </AppCard>
 
-    <!-- Practice banks preview -->
-    <AppCard>
+      <!-- RIGHT -->
+      <div class="lg:col-span-5">
+        <AppCard tone="card" class="h-full">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="h2">Progress</div>
+              <div class="text-xs text-text-3">A quick snapshot of your stats.</div>
+            </div>
+            <span class="badge">{{ data.progress?.streak || 0 }}🔥</span>
+          </div>
+
+          <div v-if="data.loading?.progress" class="mt-4 grid grid-cols-2 gap-2">
+            <div class="skeleton h-20" />
+            <div class="skeleton h-20" />
+            <div class="skeleton h-20" />
+            <div class="skeleton h-20" />
+          </div>
+
+          <div v-else class="mt-4 grid grid-cols-2 gap-2">
+            <StatPill label="Answered" :value="data.progress?.totalAnswered || 0" />
+            <StatPill label="Accuracy" :value="(data.progress?.accuracy ?? 0) + '%'" />
+            <StatPill label="Today" :value="data.progress?.todayAnswered || 0" :hint="`Goal ${data.progress?.dailyGoal || 10}`" />
+            <StatPill
+              label="Saved"
+              :value="(data.progress?.saved?.pastQuestions?.length || 0) + (data.progress?.saved?.materials?.length || 0)"
+            />
+          </div>
+
+          <div v-if="data.error" class="alert alert-warn mt-3" role="alert">
+            {{ data.error }}
+          </div>
+        </AppCard>
+      </div>
+    </div>
+
+    <!-- Practice banks -->
+    <AppCard tone="card">
       <div class="row">
         <div>
           <div class="h2">Practice banks</div>
-          <p class="sub mt-1">Choose a bank and start drilling.</p>
+          <p class="sub mt-1">Search and start drilling.</p>
         </div>
         <RouterLink to="/practice" class="btn btn-ghost">See all</RouterLink>
       </div>
 
-      <div class="divider my-4" />
-
-      <div v-if="content.loading.banks" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        <div class="skeleton h-16" />
-        <div class="skeleton h-16" />
-        <div class="skeleton h-16" />
+      <div class="mt-4">
+        <input v-model="search" class="input" placeholder="Search banks… e.g., ANA 201" />
       </div>
 
-      <div v-else-if="content.banks.length === 0" class="alert alert-ok" role="status">
-        No practice banks yet for your current selection. Check back later or try a different course.
+      <div class="divider my-4" />
+
+      <div v-if="content.loading?.banks" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="skeleton h-20" />
+        <div class="skeleton h-20" />
+        <div class="skeleton h-20" />
+      </div>
+
+      <div v-else-if="banksFiltered.length === 0" class="alert alert-ok" role="status">
+        No matching banks. Try a different keyword.
       </div>
 
       <div v-else class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <RouterLink
-          v-for="b in content.banks.slice(0, 6)"
+          v-for="b in banksFiltered.slice(0, 6)"
           :key="b.id"
           :to="`/practice/${b.id}`"
-          class="card card-press card-pad"
+          class="tile card-press p-4"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-extrabold truncate">{{ b.title }}</div>
+              <div class="text-sm font-extrabold clamp-2">{{ b.title }}</div>
               <div class="text-xs text-text-3 mt-1">{{ b.questionCount }} questions • {{ b.mode }}</div>
             </div>
             <span class="badge">Start</span>

@@ -133,8 +133,17 @@ async function save() {
   if (!departmentId.value) return (error.value = 'Choose a department to continue.')
   if (!level.value) return (error.value = 'Choose your level to continue.')
 
+  // If no courses exist yet, don't "fail" the user — send them to request + suggest GNS.
   if (baseCourseIds.value.length === 0) {
-    return (error.value = 'No default courses found for this department/level yet. Use GNS Exam Prep for now, or request your department so we can prioritise it.')
+    router.push({
+      path: '/onboarding/request-department',
+      query: {
+        facultyId: String(facultyId.value || ''),
+        departmentId: String(departmentId.value || ''),
+        level: String(Number(level.value) || 0),
+      }
+    })
+    return
   }
 
   busy.value = true
@@ -225,8 +234,16 @@ async function save() {
           Loading courses…
         </div>
 
-        <div v-else-if="baseCourses.length === 0" class="alert alert-danger" role="status">
-          No courses found for this department/level yet.
+        <div v-else-if="baseCourses.length === 0" class="alert alert-warn" role="status">
+          <div class="font-semibold">Not available yet (coming soon)</div>
+          <div class="text-xs mt-1 opacity-80">
+            Your department courses haven’t been uploaded yet. You can still use <b>GNS Exam Prep</b> right now,
+            or request your department so we prioritise it.
+          </div>
+          <div class="mt-3 flex flex-col sm:flex-row gap-2">
+            <RouterLink to="/onboarding/gns" class="btn btn-primary">Start GNS now</RouterLink>
+            <RouterLink to="/onboarding/request-department" class="btn btn-ghost">Request my department</RouterLink>
+          </div>
         </div>
 
         <div v-else class="grid gap-2 sm:grid-cols-2">

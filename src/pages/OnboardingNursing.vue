@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import AppCard from '../components/AppCard.vue'
@@ -17,7 +17,7 @@ async function configure() {
   error.value = ''
   ok.value = ''
   try {
-    // Nursing is the only dept fully wired right now
+    // Nursing 200L is the only department fully wired for now
     await auth.updateProfile({
       facultyId: 'cophas',
       departmentId: 'nur',
@@ -32,10 +32,6 @@ async function configure() {
     busy.value = false
   }
 }
-
-onMounted(async () => {
-  await configure()
-})
 </script>
 
 <template>
@@ -46,7 +42,8 @@ onMounted(async () => {
           <div class="kicker">Onboarding</div>
           <div class="h1 mt-1">200L Nursing setup</div>
           <p class="sub mt-2 max-w-[62ch]">
-            We’ll auto-select Nursing (200 Level) and add the default courses for you.
+            <b>Only Nursing (200 Level)</b> is available for department-specific content right now.
+            If you’re not Nursing, you can still start with <b>GNS Exam Prep</b>.
           </p>
         </div>
         <RouterLink to="/onboarding" class="btn btn-ghost">Back</RouterLink>
@@ -61,9 +58,15 @@ onMounted(async () => {
       <div v-if="ok" class="alert alert-ok mt-3" role="status">{{ ok }}</div>
       <div v-if="error" class="alert alert-danger mt-3" role="alert">{{ error }}</div>
 
-      <div class="mt-5 flex gap-2">
-        <AppButton :disabled="busy" @click="configure">Retry</AppButton>
-        <RouterLink to="/onboarding/gns" class="btn btn-ghost">Use GNS instead</RouterLink>
+      <div class="mt-5 flex flex-col sm:flex-row gap-2">
+        <AppButton class="w-full sm:w-auto" :disabled="busy" @click="configure">
+          <span v-if="!busy">Continue with Nursing 200L</span>
+          <span v-else>Setting up…</span>
+        </AppButton>
+
+        <RouterLink to="/onboarding/gns" class="btn btn-ghost w-full sm:w-auto">
+          Use GNS instead
+        </RouterLink>
       </div>
 
       <p class="help mt-3">

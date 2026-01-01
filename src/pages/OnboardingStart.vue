@@ -25,10 +25,29 @@ function go(path) {
       <div class="relative">
         <div class="text-xs text-text-3">Onboarding</div>
         <div class="h1 mt-1">Choose your first study track</div>
-        <p class="sub mt-2 max-w-[62ch]">
-          Because content is being built <b>department-by-department</b>, you can start with a common track now (like <b>GNS / GST</b>),
-          then add your department later when it’s ready.
+
+        <p class="sub mt-2 max-w-[70ch]">
+          <b>GNS / GST is available for everyone right now</b> — no department needed.
+          <br />
+          <span class="opacity-90">Department content is being uploaded step-by-step.</span>
+          <b class="ml-1">Only 200L Nursing</b> is live for department-specific content for now.
         </p>
+
+        <!-- Clear status banner -->
+        <div class="mt-4 grid gap-2 sm:grid-cols-3">
+          <div class="card card-pad border border-border/70 bg-surface/60">
+            <div class="text-sm font-bold">✅ Available now</div>
+            <div class="text-xs text-text-3 mt-1">GNS / GST Exam Prep (all students)</div>
+          </div>
+          <div class="card card-pad border border-border/70 bg-surface/60">
+            <div class="text-sm font-bold">✅ Live (Dept)</div>
+            <div class="text-xs text-text-3 mt-1">Nursing — 200 Level only</div>
+          </div>
+          <div class="card card-pad border border-border/70 bg-surface/60">
+            <div class="text-sm font-bold">⏳ Coming soon</div>
+            <div class="text-xs text-text-3 mt-1">Other departments (join waitlist)</div>
+          </div>
+        </div>
 
         <div class="grid gap-3 mt-6 sm:grid-cols-3">
           <button type="button" class="card card-press card-pad text-left" @click="go('/onboarding/gns')">
@@ -60,7 +79,7 @@ function go(path) {
 
           <div class="flex gap-2">
             <RouterLink v-if="hasSomeSetup" to="/dashboard" class="btn btn-ghost">Go to dashboard</RouterLink>
-            <RouterLink to="/onboarding/department" class="btn btn-ghost">Department setup</RouterLink>
+            <RouterLink to="/onboarding/department" class="btn btn-ghost">Try department setup</RouterLink>
           </div>
         </div>
       </div>
