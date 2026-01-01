@@ -134,12 +134,16 @@
   .badge { @apply inline-flex items-center rounded-full border border-stroke/60 px-2.5 py-1 text-xs font-semibold bg-white/[0.03] text-text-2; }
 
   /* ✅ New: nicer count badge (for Quick Actions, notifications, etc.) */
-  .count-badge {
-    @apply inline-flex items-center justify-center;
-    @apply min-w-[1.25rem] h-5 px-1.5 rounded-full;
-    @apply text-xs font-extrabold;
-    @apply bg-accent/18 border border-accent/30 text-text;
-  }
+ .count-badge {
+  @apply inline-flex items-center justify-center;
+  @apply min-w-[1.25rem] h-5 px-1.5 rounded-full;
+  @apply text-xs font-extrabold text-text;
+  @apply border;
+  /* Use rgba instead of Tailwind /18 which doesn't exist */
+  background: rgba(16, 185, 129, 0.18); /* fallback "accent" tint */
+  border-color: rgba(16, 185, 129, 0.30);
+}
+
 
   /* ✅ New: tiny dot badge (unread indicator) */
   .dot-badge {
