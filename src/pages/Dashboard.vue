@@ -117,40 +117,14 @@ const quickActions = computed(() => [
   }
 ])
 
-/** Practice banks */
+/** Practice banks (no mode filters for now) */
 const search = ref('')
-const bankFilter = ref('all')
-
-const bankFilters = [
-  { key: 'all', label: 'All' },
-  { key: 'quick', label: 'Quick' },
-  { key: 'exam', label: 'Exam' },
-  { key: 'pastq', label: 'PastQ' }
-]
-
-function normalizeMode(mode) {
-  return String(mode || '').toLowerCase()
-}
 
 const banksFiltered = computed(() => {
   const q = search.value.trim().toLowerCase()
   const all = content.banks || []
-
-  let list = all
-  if (q) list = list.filter(b => String(b.title || '').toLowerCase().includes(q))
-
-  const f = bankFilter.value
-  if (f !== 'all') {
-    list = list.filter(b => {
-      const m = normalizeMode(b.mode)
-      if (f === 'quick') return m.includes('quick')
-      if (f === 'exam') return m.includes('exam')
-      if (f === 'pastq') return m.includes('past') || m.includes('pq') || m.includes('pastq')
-      return true
-    })
-  }
-
-  return list
+  if (!q) return all
+  return all.filter(b => String(b.title || '').toLowerCase().includes(q))
 })
 
 onMounted(async () => {
@@ -335,21 +309,8 @@ onMounted(async () => {
         <RouterLink to="/practice" class="btn btn-ghost">See all</RouterLink>
       </div>
 
-      <div class="mt-4 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+      <div class="mt-4">
         <input v-model="search" class="input" placeholder="Search banks… e.g., ANA 201" />
-
-        <div class="seg w-full sm:w-auto justify-between sm:justify-start">
-          <button
-            v-for="f in bankFilters"
-            :key="f.key"
-            type="button"
-            class="seg-btn"
-            :class="bankFilter === f.key ? 'seg-btn--active' : 'seg-btn--inactive'"
-            @click="bankFilter = f.key"
-          >
-            {{ f.label }}
-          </button>
-        </div>
       </div>
 
       <div class="divider my-4" />
@@ -361,7 +322,7 @@ onMounted(async () => {
       </div>
 
       <div v-else-if="banksFiltered.length === 0" class="alert alert-ok" role="status">
-        No matching banks. Try a different keyword or filter.
+        No matching banks. Try a different keyword.
       </div>
 
       <div v-else class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -374,7 +335,9 @@ onMounted(async () => {
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="text-sm font-extrabold clamp-2">{{ b.title }}</div>
-              <div class="text-xs text-text-3 mt-1">{{ b.questionCount }} questions • {{ b.mode }}</div>
+              <div class="text-xs text-text-3 mt-1">
+                {{ b.questionCount }} questions<span v-if="b.mode"> • {{ b.mode }}</span>
+              </div>
             </div>
             <span class="badge">Start</span>
           </div>
