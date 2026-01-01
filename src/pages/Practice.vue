@@ -21,7 +21,7 @@ const mins = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : 10
 })
 
-const sessionQuestions = ref([])
+const sessionQuestions = ref([]) // questions for current session (can be shuffled/filtered)
 const qStartedAt = ref(Date.now())
 
 const remaining = ref(0)
@@ -41,12 +41,10 @@ function startTimerIfNeeded() {
   if (timerId) window.clearInterval(timerId)
   timerId = null
   timeUp.value = false
-
   if (mode.value !== 'timed') {
     remaining.value = 0
     return
   }
-
   remaining.value = Math.max(60, Math.round(mins.value * 60))
   timerId = window.setInterval(() => {
     if (remaining.value <= 0) {
@@ -83,7 +81,6 @@ function formatRemaining() {
   const ss = String(s % 60).padStart(2, '0')
   return `${m}:${ss}`
 }
-
 const qIndex = ref(0)
 const selected = ref(null)
 const reveal = ref(false)
@@ -95,9 +92,9 @@ const aiExplanation = ref(null)
 const aiBusy = ref(false)
 const aiError = ref('')
 
+
 const bank = computed(() => content.bank)
 const questions = computed(() => bank.value?.questions || [])
-const totalInSession = computed(() => sessionQuestions.value.length || 0)
 const current = computed(() => sessionQuestions.value[qIndex.value] || null)
 
 const bankStats = computed(() => data.answers?.[bankId.value] || { answeredIds: [], correctIds: [] })
@@ -106,14 +103,9 @@ const correctCount = computed(() => bankStats.value.correctIds?.length || 0)
 const accuracy = computed(() => (answeredCount.value ? Math.round((correctCount.value / answeredCount.value) * 100) : 0))
 
 const progressPct = computed(() => {
-  const total = totalInSession.value || 0
+  const total = questions.value.length || 0
   if (!total) return 0
   return Math.min(100, Math.round(((qIndex.value + 1) / total) * 100))
-})
-
-const isLast = computed(() => {
-  const total = totalInSession.value || 0
-  return total ? qIndex.value >= total - 1 : true
 })
 
 watch(bankId, async (id) => {
@@ -124,7 +116,6 @@ watch(bankId, async (id) => {
   aiHint.value = ''
   aiExplanation.value = null
   aiError.value = ''
-
   await load(id)
   buildSessionQuestions()
   startTimerIfNeeded()
@@ -156,6 +147,7 @@ function buildSessionQuestions() {
   const all = questions.value || []
   const stats = bankStats.value || { answeredIds: [], correctIds: [] }
 
+  // default: keep original order
   let q = [...all]
 
   if (mode.value === 'wrong') {
@@ -186,43 +178,6 @@ onMounted(async () => {
   await load(bankId.value)
   buildSessionQuestions()
   startTimerIfNeeded()
-
-  // keyboard shortcuts
-  const onKey = (e) => {
-    if (!current.value) return
-    const key = (e.key || '').toLowerCase()
-
-    if (key === 'escape') {
-      e.preventDefault()
-      backToBanks()
-      return
-    }
-
-    if (mode.value === 'timed' && timeUp.value) return
-
-    // A-D picks (only if not revealed)
-    if (!reveal.value) {
-      const map = { a: 0, b: 1, c: 2, d: 3 }
-      if (key in map) {
-        e.preventDefault()
-        pick(map[key])
-        return
-      }
-      if (key === 'enter') {
-        e.preventDefault()
-        submit()
-        return
-      }
-    } else {
-      if (key === 'enter' || key === 'arrowright') {
-        e.preventDefault()
-        next()
-      }
-    }
-  }
-
-  window.addEventListener('keydown', onKey)
-  onUnmounted(() => window.removeEventListener('keydown', onKey))
 })
 
 function pick(i) {
@@ -234,29 +189,28 @@ function pick(i) {
 async function submit() {
   if (!current.value) return
   if (selected.value === null) return
+
   if (mode.value === 'timed' && timeUp.value) return
 
   busy.value = true
   try {
     const secondsSpent = Math.max(0, Math.round((Date.now() - qStartedAt.value) / 1000))
-    await data.submitAnswer({
+    const res = await data.submitAnswer({
       bankId: bankId.value,
       questionId: current.value.id,
       selectedIndex: selected.value,
       secondsSpent
     })
+
     reveal.value = true
+
+    // If API returned isCorrect, we can show a toast someday; for now just keep UI.
+    return res
   } catch (e) {
     error.value = e?.message || 'Failed to submit answer.'
   } finally {
     busy.value = false
   }
-}
-
-function skip() {
-  if (!current.value) return
-  if (mode.value === 'timed' && timeUp.value) return
-  next()
 }
 
 async function getAiHint() {
@@ -298,10 +252,7 @@ async function getAiExplanation() {
 }
 
 function next() {
-  const total = totalInSession.value || 0
-  if (!total) return
-
-  if (qIndex.value < total - 1) {
+  if (qIndex.value < questions.value.length - 1) {
     qIndex.value++
     selected.value = null
     reveal.value = false
@@ -316,7 +267,6 @@ async function resetBank() {
     qIndex.value = 0
     selected.value = null
     reveal.value = false
-    buildSessionQuestions()
   } catch (e) {
     error.value = e?.message || 'Failed to reset bank.'
   } finally {
@@ -331,37 +281,44 @@ function backToBanks() {
 
 <template>
   <div class="page">
-    <!-- TOP CARD -->
     <AppCard>
       <div class="flex flex-col gap-4">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="kicker">Practice bank</div>
             <div class="h1 mt-1 truncate">{{ bank?.title || 'Loading…' }}</div>
-            <p class="sub mt-2">
-              Tip: Use <span class="badge">A–D</span> to pick, <span class="badge">Enter</span> to reveal/next, <span class="badge">Esc</span> to go back.
-            </p>
-
+            <p class="sub mt-2">Answer, reveal, then move fast. Keep it focused.</p>
             <div class="mt-3 flex flex-wrap items-center gap-2">
               <span class="text-xs text-text-3">Mode:</span>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :class="mode === 'normal' ? 'ring-1 ring-accent/50' : ''"
+                @click="setMode('normal')"
+              >Normal</button>
 
-              <button type="button" class="btn btn-ghost btn-sm" :class="mode === 'normal' ? 'ring-1 ring-accent/50' : ''" @click="setMode('normal')">
-                Normal
-              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :class="mode === 'retry' ? 'ring-1 ring-accent/50' : ''"
+                @click="setMode('retry')"
+              >Retry (shuffle)</button>
 
-              <button type="button" class="btn btn-ghost btn-sm" :class="mode === 'retry' ? 'ring-1 ring-accent/50' : ''" @click="setMode('retry')">
-                Retry (shuffle)
-              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :class="mode === 'wrong' ? 'ring-1 ring-accent/50' : ''"
+                @click="setMode('wrong')"
+              >Wrong only</button>
 
-              <button type="button" class="btn btn-ghost btn-sm" :class="mode === 'wrong' ? 'ring-1 ring-accent/50' : ''" @click="setMode('wrong')">
-                Wrong only
-              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :class="mode === 'timed' ? 'ring-1 ring-accent/50' : ''"
+                @click="setMode('timed')"
+              >Timed CBT</button>
 
-              <button type="button" class="btn btn-ghost btn-sm" :class="mode === 'timed' ? 'ring-1 ring-accent/50' : ''" @click="setMode('timed')">
-                Timed CBT
-              </button>
-
-              <span v-if="mode === 'timed'" class="badge badge-warn ml-1">Time: {{ formatRemaining() }}</span>
+              <span v-if="mode === 'timed'" class="badge badge-warn ml-1">Time left: {{ formatRemaining() }}</span>
             </div>
 
             <div v-if="mode === 'timed'" class="mt-2 flex flex-wrap items-center gap-2">
@@ -371,6 +328,7 @@ function backToBanks() {
               <button type="button" class="btn btn-ghost btn-sm" @click="setTimedMins(20)">20m</button>
               <button type="button" class="btn btn-ghost btn-sm" @click="setTimedMins(30)">30m</button>
             </div>
+
           </div>
 
           <div class="flex items-center gap-2">
@@ -382,7 +340,7 @@ function backToBanks() {
         <div class="grid gap-2 sm:grid-cols-4">
           <div class="glass rounded-xl2 border border-stroke/60 px-4 py-3">
             <div class="text-xs text-text-3">Progress</div>
-            <div class="text-sm font-bold mt-1">{{ qIndex + 1 }} / {{ totalInSession || 0 }}</div>
+            <div class="text-sm font-bold mt-1">{{ qIndex + 1 }} / {{ sessionQuestions.length || 0 }}</div>
           </div>
           <div class="glass rounded-xl2 border border-stroke/60 px-4 py-3">
             <div class="text-xs text-text-3">Answered</div>
@@ -402,7 +360,7 @@ function backToBanks() {
           <div class="h-full bg-accent transition-all duration-200" :style="{ width: progressPct + '%' }" />
         </div>
 
-        <div v-if="content.loading?.bank" class="grid gap-2">
+        <div v-if="content.loading.bank" class="grid gap-2">
           <div class="skeleton h-24" />
           <div class="skeleton h-12" />
           <div class="skeleton h-12" />
@@ -412,12 +370,8 @@ function backToBanks() {
       </div>
     </AppCard>
 
-    <!-- QUESTION CARD -->
-    <AppCard v-if="!content.loading?.bank && current" class="relative">
-      <div v-if="timeUp" class="alert alert-warn mb-3" role="alert">
-        Time is up. You can review your stats or go back to banks.
-      </div>
-
+    <AppCard v-if="!content.loading.bank && current" class="relative">
+      <div v-if="timeUp" class="alert alert-warn mb-3" role="alert">Time is up. You can still review your stats, or go back.</div>
       <div class="kicker">Question {{ qIndex + 1 }}</div>
       <div class="mt-1 text-lg sm:text-xl font-extrabold leading-snug">{{ current.question }}</div>
 
@@ -450,11 +404,15 @@ function backToBanks() {
       <!-- AI hint (before reveal) -->
       <div v-if="!reveal" class="mt-4">
         <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-          <button class="btn btn-ghost w-full sm:w-auto" :disabled="aiBusy" @click="getAiHint">
+          <button
+            class="btn btn-ghost w-full sm:w-auto"
+            :disabled="aiBusy"
+            @click="getAiHint"
+          >
             <span v-if="!aiBusy">Get AI hint</span>
             <span v-else>Thinking…</span>
           </button>
-          <p class="text-xs text-text-3">Try first. Use hints only when stuck.</p>
+          <p class="text-xs text-text-3">Use hints to learn faster — but still try first.</p>
         </div>
 
         <div v-if="aiError" class="alert alert-warn mt-3" role="alert">{{ aiError }}</div>
@@ -472,11 +430,15 @@ function backToBanks() {
       <!-- AI explanation (after reveal) -->
       <div v-if="reveal" class="mt-3">
         <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-          <button class="btn btn-ghost w-full sm:w-auto" :disabled="aiBusy" @click="getAiExplanation">
+          <button
+            class="btn btn-ghost w-full sm:w-auto"
+            :disabled="aiBusy"
+            @click="getAiExplanation"
+          >
             <span v-if="!aiBusy">Explain with AI</span>
             <span v-else>Thinking…</span>
           </button>
-          <p class="text-xs text-text-3">Deeper explanation + why other options are wrong.</p>
+          <p class="text-xs text-text-3">Generates a deeper explanation + why other options are wrong.</p>
         </div>
 
         <div v-if="aiError" class="alert alert-warn mt-3" role="alert">{{ aiError }}</div>
@@ -493,9 +455,7 @@ function backToBanks() {
             <li v-for="(s, i) in aiExplanation.whyOthersAreWrong" :key="'w'+i">{{ s }}</li>
           </ul>
 
-          <div v-if="aiExplanation.keyTakeaway" class="mt-2 text-sm text-text-2">
-            <span class="font-semibold">Key takeaway:</span> {{ aiExplanation.keyTakeaway }}
-          </div>
+          <div v-if="aiExplanation.keyTakeaway" class="mt-2 text-sm text-text-2"><span class="font-semibold">Key takeaway:</span> {{ aiExplanation.keyTakeaway }}</div>
         </div>
       </div>
 
@@ -510,26 +470,20 @@ function backToBanks() {
           <span v-else>Submitting…</span>
         </AppButton>
 
-        <AppButton v-else class="w-full sm:w-auto" :disabled="isLast" @click="next">
+        <AppButton
+          v-else
+          class="w-full sm:w-auto"
+          :disabled="qIndex >= sessionQuestions.length - 1"
+          @click="next"
+        >
           Next question
         </AppButton>
 
-        <button v-if="!reveal" class="btn btn-ghost w-full sm:w-auto" @click="skip">
-          Skip
-        </button>
-
-        <button class="btn btn-ghost w-full sm:w-auto" @click="backToBanks">
-          Back to banks
-        </button>
-      </div>
-
-      <div v-if="isLast && reveal" class="alert alert-ok mt-4" role="status">
-        You’ve reached the end of this session.
-        <button class="btn btn-ghost btn-sm ml-2" @click="backToBanks">Back to banks</button>
+        <button class="btn btn-ghost w-full sm:w-auto" @click="backToBanks">Back to banks</button>
       </div>
     </AppCard>
 
-    <AppCard v-else-if="!content.loading?.bank" class="alert alert-ok" role="status">
+    <AppCard v-else-if="!content.loading.bank" class="alert alert-ok" role="status">
       No questions to practice right now.
     </AppCard>
   </div>
