@@ -36,7 +36,7 @@ async function setGoal(g) {
   await data.setDailyGoal(g)
 }
 
-/** ✅ Quick Actions: full labels + count badges (no “Prac/Mate/Upd/Grou”) */
+/** Quick actions */
 const notifyCount = computed(() => Number(data.progress?.notifyUnread || 0))
 const pendingGroups = computed(() => Number(data.groups?.pending || 0))
 
@@ -117,7 +117,7 @@ const quickActions = computed(() => [
   }
 ])
 
-/** ✅ Practice banks: search + quick filters (All / Quick / Exam / PastQ) */
+/** Practice banks */
 const search = ref('')
 const bankFilter = ref('all')
 
@@ -203,11 +203,10 @@ onMounted(async () => {
       </div>
     </AppCard>
 
-    <!-- Main grid -->
+    <!-- Main grid (Resume + Progress only) -->
     <div class="grid gap-4 lg:grid-cols-12">
       <!-- LEFT -->
       <div class="lg:col-span-7 space-y-4">
-        <!-- Resume hero -->
         <AppCard tone="card">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -257,43 +256,6 @@ onMounted(async () => {
             </div>
           </div>
         </AppCard>
-
-        <!-- ✅ Quick actions (premium grid, full labels, count badges) -->
-        <div class="grid gap-2 sm:gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-          <RouterLink
-            v-for="a in quickActions"
-            :key="a.to"
-            :to="a.to"
-            class="tile card-press p-3 sm:p-4 relative"
-            :aria-label="`Go to ${a.label}`"
-          >
-            <div class="flex items-start gap-3">
-              <div class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center relative shrink-0">
-                <span v-html="a.icon" />
-              </div>
-
-              <div class="min-w-0">
-                <div class="text-sm font-extrabold clamp-2 leading-snug">
-                  {{ a.label }}
-                </div>
-                <div class="mt-1 text-xs text-text-3 clamp-2">
-                  {{ a.sub }}
-                </div>
-              </div>
-            </div>
-
-            <!-- count badge -->
-            <span
-              v-if="(a.count || 0) > 0"
-              class="absolute top-3 right-3 inline-flex items-center justify-center
-                     min-w-[1.25rem] h-5 px-1.5 rounded-full text-xs font-extrabold
-                     bg-accent/18 border border-accent/30 text-text"
-              aria-label="Unread count"
-            >
-              {{ a.count > 99 ? '99+' : a.count }}
-            </span>
-          </RouterLink>
-        </div>
       </div>
 
       <!-- RIGHT -->
@@ -317,11 +279,7 @@ onMounted(async () => {
           <div v-else class="mt-4 grid grid-cols-2 gap-2">
             <StatPill label="Answered" :value="data.progress?.totalAnswered || 0" />
             <StatPill label="Accuracy" :value="(data.progress?.accuracy ?? 0) + '%'" />
-            <StatPill
-              label="Today"
-              :value="data.progress?.todayAnswered || 0"
-              :hint="`Goal ${data.progress?.dailyGoal || 10}`"
-            />
+            <StatPill label="Today" :value="data.progress?.todayAnswered || 0" :hint="`Goal ${data.progress?.dailyGoal || 10}`" />
             <StatPill
               label="Saved"
               :value="(data.progress?.saved?.pastQuestions?.length || 0) + (data.progress?.saved?.materials?.length || 0)"
@@ -333,6 +291,33 @@ onMounted(async () => {
           </div>
         </AppCard>
       </div>
+    </div>
+
+    <!-- ✅ FIXED: Quick actions now span FULL width -->
+    <div class="grid gap-2 sm:gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+      <RouterLink
+        v-for="a in quickActions"
+        :key="a.to"
+        :to="a.to"
+        class="tile card-press p-3 sm:p-4 relative"
+        :aria-label="`Go to ${a.label}`"
+      >
+        <div class="flex items-start gap-3">
+          <div class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center shrink-0">
+            <span v-html="a.icon" />
+          </div>
+
+          <div class="min-w-0">
+            <div class="text-sm font-extrabold clamp-2 leading-snug">{{ a.label }}</div>
+            <div class="mt-1 text-xs text-text-3 clamp-2">{{ a.sub }}</div>
+          </div>
+        </div>
+
+        <!-- count badge -->
+        <span v-if="(a.count || 0) > 0" class="absolute top-3 right-3 count-badge">
+          {{ a.count > 99 ? '99+' : a.count }}
+        </span>
+      </RouterLink>
     </div>
 
     <!-- Practice banks -->
@@ -348,7 +333,6 @@ onMounted(async () => {
       <div class="mt-4 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
         <input v-model="search" class="input" placeholder="Search banks… e.g., ANA 201" />
 
-        <!-- ✅ Quick filters -->
         <div class="seg w-full sm:w-auto justify-between sm:justify-start">
           <button
             v-for="f in bankFilters"

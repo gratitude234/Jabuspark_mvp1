@@ -67,6 +67,11 @@
     box-shadow: 0 10px 24px rgba(0,0,0,0.35);
   }
 
+  /* Optional: subtle “premium” lift on hover (desktop) */
+  @media (hover: hover) {
+    .tile:hover { transform: translateY(-1px); }
+  }
+
   .card-pad { @apply p-4 sm:p-5; }
 
   /* Press feedback */
@@ -127,6 +132,20 @@
   /* ---------- Chips / badges ---------- */
   .chip { @apply inline-flex items-center gap-2 rounded-full border border-stroke/60 px-3 py-1.5 text-xs text-text-2 bg-white/[0.03]; }
   .badge { @apply inline-flex items-center rounded-full border border-stroke/60 px-2.5 py-1 text-xs font-semibold bg-white/[0.03] text-text-2; }
+
+  /* ✅ New: nicer count badge (for Quick Actions, notifications, etc.) */
+  .count-badge {
+    @apply inline-flex items-center justify-center;
+    @apply min-w-[1.25rem] h-5 px-1.5 rounded-full;
+    @apply text-xs font-extrabold;
+    @apply bg-accent/18 border border-accent/30 text-text;
+  }
+
+  /* ✅ New: tiny dot badge (unread indicator) */
+  .dot-badge {
+    @apply absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full;
+    @apply bg-accent ring-2 ring-surface;
+  }
 
   /* ---------- Alerts ---------- */
   .alert { @apply rounded-xl2 border px-4 py-3 text-sm; }
