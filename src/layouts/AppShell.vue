@@ -14,32 +14,24 @@ const isMatch = (prefix) => {
   return p === prefix || p.startsWith(prefix + '/') || p.startsWith(prefix)
 }
 
+const title = computed(() => route.meta?.title || 'JabuSpark')
 const notifyUnread = computed(() => Number(data.progress?.notifyUnread || 0))
 const groupPending = computed(() => Number(data.groups?.pending || 0))
 const missionsClaimable = computed(() => Number(data.missions?.claimable ?? data.progress?.missionsClaimable ?? 0))
 
-const firstName = computed(() => {
-  const full = (auth.user?.fullName || 'Student').trim()
-  return full.split(/\s+/)[0] || 'Student'
-})
-
 const navItems = computed(() => [
   { key: 'home', label: 'Home', to: '/dashboard', match: () => isMatch('/dashboard') },
   { key: 'practice', label: 'Practice', to: '/practice', match: () => isMatch('/practice') },
-  { key: 'pastq', label: 'Past Questions', to: '/past-questions', match: () => isMatch('/past-questions') },
+  { key: 'pastq', label: 'PastQ', to: '/past-questions', match: () => isMatch('/past-questions') },
   { key: 'materials', label: 'Materials', to: '/materials', match: () => isMatch('/materials') },
   { key: 'saved', label: 'Saved', to: '/saved', match: () => isMatch('/saved') },
-  { key: 'progress', label: 'Progress', to: '/progress', match: () => isMatch('/progress') }
+  { key: 'progress', label: 'Progress', to: '/progress', match: () => isMatch('/progress') },
 ])
 
-const desktopLinkClass = (active) => {
+const desktopNavClass = (active) => {
   return [
-    'text-sm font-semibold transition',
-    'px-1 py-2',
-    'border-b-2',
-    active
-      ? 'text-text border-accent'
-      : 'text-text-2 border-transparent hover:text-text hover:border-white/10'
+    'btn btn-ghost btn-sm',
+    active ? 'bg-white/[0.08] ring-1 ring-white/10 text-text' : 'text-text-2 hover:text-text',
   ].join(' ')
 }
 
@@ -61,114 +53,94 @@ function iconPath(key) {
 }
 
 onMounted(async () => {
-  // keep badges fresh
+  // keep the bell badge fresh
   if (auth.isAuthed) {
-    await Promise.allSettled([
-      data.fetchProgress(),
-      data.fetchMissions(),
-      data.fetchNotifyChannels(),
-      data.fetchGroupBadge()
-    ])
+    await Promise.allSettled([data.fetchProgress(), data.fetchMissions(), data.fetchNotifyChannels(), data.fetchGroupBadge()])
   }
 })
+
 </script>
 
 <template>
   <!-- Bottom padding accounts for fixed mobile nav + iOS safe-area -->
   <div class="min-h-dvh pb-[calc(86px+env(safe-area-inset-bottom))] sm:pb-0">
-    <!-- Top bar (quieter / premium) -->
-    <header class="sticky top-0 z-40 border-b border-stroke/70 bg-surface/70 backdrop-blur-xl">
-      <div class="container-app h-14 flex items-center justify-between gap-3">
-        <!-- Brand -->
+    <!-- Top bar -->
+    <header class="sticky top-0 z-40 border-b border-stroke/70 bg-surface/75 backdrop-blur-xl">
+      <div class="container-app h-16 flex items-center justify-between gap-3">
         <RouterLink
           to="/dashboard"
-          class="flex items-center gap-2 hover:opacity-90"
+          class="hover:opacity-90 flex items-center gap-2"
           aria-label="Go to dashboard"
         >
           <LogoMark variant="auto" :mobile="9" :desktop="11" alt="JabuSpark" />
         </RouterLink>
 
-        <!-- Desktop nav (text links with underline, not pill buttons) -->
-        <nav class="hidden md:flex items-center gap-6" aria-label="Primary">
+        <!-- Desktop nav -->
+        <nav class="hidden sm:flex items-center gap-2" aria-label="Primary">
           <RouterLink
             v-for="item in navItems"
             :key="item.to"
             :to="item.to"
-            :class="desktopLinkClass(item.match())"
+            :class="desktopNavClass(item.match())"
             :aria-current="item.match() ? 'page' : undefined"
           >
             {{ item.label }}
           </RouterLink>
         </nav>
 
-        <!-- Right actions -->
         <div class="flex items-center gap-2">
-          <!-- Notifications -->
+          <div class="hidden sm:block text-sm text-text-2">{{ title }}</div>
+
           <RouterLink
             to="/notify"
-            class="icon-btn relative"
-            :class="isMatch('/notify') ? 'ring-1 ring-white/10 bg-white/[0.06]' : ''"
+            class="btn btn-ghost btn-sm relative"
+            :class="isMatch('/notify') ? 'bg-white/[0.08] ring-1 ring-white/10' : ''"
             aria-label="Announcements"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
               <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 7h18s-3 0-3-7" />
               <path d="M13.73 21a2 2 0 0 1-3.46 0" />
             </svg>
-            <span
-              v-if="notifyUnread > 0"
-              class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface"
-            />
+            <span v-if="notifyUnread > 0" class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" />
           </RouterLink>
 
-          <!-- Groups -->
           <RouterLink
             to="/groups"
-            class="icon-btn relative"
-            :class="isMatch('/groups') ? 'ring-1 ring-white/10 bg-white/[0.06]' : ''"
+            class="btn btn-ghost btn-sm relative"
+            :class="isMatch('/groups') ? 'bg-white/[0.08] ring-1 ring-white/10' : ''"
             aria-label="Study Groups"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
               <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
               <circle cx="9" cy="7" r="4" />
               <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
-            <span
-              v-if="groupPending > 0"
-              class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface"
-            />
+            <span v-if="groupPending > 0" class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" />
           </RouterLink>
 
-          <!-- Missions -->
           <RouterLink
             to="/missions"
-            class="icon-btn relative hidden sm:inline-flex"
-            :class="isMatch('/missions') ? 'ring-1 ring-white/10 bg-white/[0.06]' : ''"
+            class="btn btn-ghost btn-sm relative"
+            :class="isMatch('/missions') ? 'bg-white/[0.08] ring-1 ring-white/10' : ''"
             aria-label="Weekly Missions"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
               <circle cx="12" cy="12" r="10" />
               <circle cx="12" cy="12" r="6" />
               <circle cx="12" cy="12" r="2" />
             </svg>
-            <span
-              v-if="missionsClaimable > 0"
-              class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface"
-            />
+            <span v-if="missionsClaimable > 0" class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" />
           </RouterLink>
 
-          <!-- Profile: cleaner chip -->
           <RouterLink
             to="/profile"
-            class="chip hidden sm:inline-flex hover:bg-white/[0.06]"
+            class="chip hover:bg-white/[0.06]"
             :class="isMatch('/profile') ? 'ring-1 ring-white/10 bg-white/[0.06]' : ''"
             :aria-current="isMatch('/profile') ? 'page' : undefined"
           >
             <span class="h-2 w-2 rounded-full bg-accent" />
-            <span class="max-w-[140px] truncate">{{ firstName }}</span>
+            <span class="max-w-[160px] truncate">{{ auth.user?.fullName || 'Student' }}</span>
           </RouterLink>
         </div>
       </div>

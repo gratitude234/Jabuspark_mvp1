@@ -10,6 +10,7 @@ import AppCard from '../components/AppCard.vue'
 import AppInput from '../components/AppInput.vue'
 import AppSelect from '../components/AppSelect.vue'
 import StatPill from '../components/StatPill.vue'
+import { bankMeta } from '../utils/bankKind'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -48,10 +49,12 @@ const banks = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (!q) return list
   return list.filter((b) => {
-    const hay = [b.title, b.mode].filter(Boolean).join(' ').toLowerCase()
+    const hay = [b.title, bankMeta(b).label].filter(Boolean).join(' ').toLowerCase()
     return hay.includes(q)
   })
 })
+
+const bankLabel = (b) => bankMeta(b).label
 
 const goalPct = computed(() => {
   const goal = Number(data.progress?.dailyGoal || 10)
@@ -257,7 +260,7 @@ async function challengeFriend(bankId) {
             <div class="text-sm text-text-2 mt-1">
               {{ b.questionCount }} questions
               <span class="text-text-3">•</span>
-              {{ b.mode }}
+              {{ bankLabel(b) }}
             </div>
           </div>
 
