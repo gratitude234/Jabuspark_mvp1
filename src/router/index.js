@@ -5,7 +5,11 @@ import AuthLayout from '../layouts/AuthLayout.vue'
 import AppShell from '../layouts/AppShell.vue'
 
 import Login from '../pages/Login.vue'
-import Onboarding from '../pages/Onboarding.vue'
+import OnboardingStart from '../pages/OnboardingStart.vue'
+import OnboardingDepartment from '../pages/Onboarding.vue'
+import OnboardingGns from '../pages/OnboardingGns.vue'
+import OnboardingNursing from '../pages/OnboardingNursing.vue'
+import OnboardingRequestDept from '../pages/OnboardingRequestDept.vue'
 import Dashboard from '../pages/Dashboard.vue'
 import PastQuestions from '../pages/PastQuestions.vue'
 import Materials from '../pages/Materials.vue'
@@ -67,7 +71,11 @@ const routes = [
     children: [
       { path: '', redirect: '/dashboard' },
 
-      { path: 'onboarding', component: Onboarding, meta: { title: 'Onboarding' } },
+      { path: 'onboarding', component: OnboardingStart, meta: { title: 'Onboarding' } },
+      { path: 'onboarding/gns', component: OnboardingGns, meta: { title: 'GNS Exam Prep' } },
+      { path: 'onboarding/nursing-200', component: OnboardingNursing, meta: { title: 'Nursing 200L Setup' } },
+      { path: 'onboarding/request-department', component: OnboardingRequestDept, meta: { title: 'Request Department' } },
+      { path: 'onboarding/department', component: OnboardingDepartment, meta: { title: 'Department Setup' } },
       { path: 'dashboard', component: Dashboard, meta: { title: 'Dashboard' } },
       { path: 'past-questions', component: PastQuestions, meta: { title: 'Past Questions' } },
       { path: 'materials', component: Materials, meta: { title: 'Materials' } },
@@ -136,7 +144,7 @@ router.beforeEach((to) => {
   if (needsAuth && !auth.isAuthed) {
     return { path: '/auth/login', query: { next: to.fullPath } }
   }
-  if (auth.isAuthed && auth.needsOnboarding && to.path !== '/onboarding') {
+  if (auth.isAuthed && auth.needsOnboarding && !to.path.startsWith('/onboarding')) {
     return { path: '/onboarding', query: { next: to.fullPath } }
   }
 

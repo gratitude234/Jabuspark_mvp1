@@ -134,7 +134,7 @@ async function save() {
   if (!level.value) return (error.value = 'Choose your level to continue.')
 
   if (baseCourseIds.value.length === 0) {
-    return (error.value = 'No default courses found for your department/level yet. Ask an admin to add them.')
+    return (error.value = 'No default courses found for this department/level yet. Use GNS Exam Prep for now, or request your department so we can prioritise it.')
   }
 
   busy.value = true
@@ -161,11 +161,22 @@ async function save() {
 <template>
   <div class="page">
     <AppCard class="max-w-3xl mx-auto">
-      <div class="text-xs text-text-3">Onboarding</div>
-      <div class="h1 mt-1">Set up your study profile</div>
-      <p class="sub mt-2">
-        We’ll automatically add all courses for your <b>department</b> and <b>level</b>. If you have carryovers, you can add extra courses too.
-      </p>
+      <div class="row">
+        <div>
+          <div class="text-xs text-text-3">Onboarding</div>
+          <div class="h1 mt-1">Department setup (optional)</div>
+          <p class="sub mt-2 max-w-[62ch]">
+            Department content is being added step-by-step. If your department courses aren’t available yet, start with <b>GNS Exam Prep</b>
+            and come back later.
+          </p>
+        </div>
+        <RouterLink to="/onboarding" class="btn btn-ghost">Back</RouterLink>
+      </div>
+
+      <div class="mt-4 flex flex-col sm:flex-row gap-2">
+        <RouterLink to="/onboarding/gns" class="btn btn-primary">Start GNS Exam Prep</RouterLink>
+        <RouterLink to="/onboarding/request-department" class="btn btn-ghost">Request my department</RouterLink>
+      </div>
 
       <div class="grid gap-4 mt-6 sm:grid-cols-3">
         <div class="sm:col-span-1">

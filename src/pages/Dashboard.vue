@@ -11,7 +11,10 @@ const data = useDataStore()
 const content = useContentStore()
 
 const profile = computed(() => auth.user?.profile || {})
-const hasProfile = computed(() => !!profile.value?.departmentId)
+const hasProfile = computed(() => {
+  const p = profile.value || {}
+  return (p.level || 0) > 0 && (p.courseIds || []).length > 0
+})
 
 const firstCourseId = computed(() => (profile.value.courseIds || [])[0] || '')
 
@@ -74,7 +77,7 @@ onMounted(async () => {
             <div class="kicker">Campus-ready study hub</div>
             <div class="h1 mt-1 truncate">{{ greeting }}</div>
             <p class="sub mt-2">
-              {{ hasProfile ? 'Pick up where you left off and keep your streak going.' : 'Complete onboarding to unlock personalised study.' }}
+              {{ hasProfile ? 'Pick up where you left off and keep your streak going.' : 'Finish quick setup (GNS or department) to unlock personalised study.' }}
             </p>
           </div>
 
