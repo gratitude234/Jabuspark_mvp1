@@ -203,10 +203,10 @@ onMounted(async () => {
       </div>
     </AppCard>
 
-    <!-- Main grid (Resume + Progress only) -->
-    <div class="grid gap-4 lg:grid-cols-12">
-      <!-- LEFT -->
-      <div class="lg:col-span-7 space-y-4">
+    <!-- ✅ Mobile: Resume -> Quick Actions -> Progress (Desktop stays Resume+Progress, then Quick Actions) -->
+    <div class="flex flex-col gap-4 lg:grid lg:grid-cols-12">
+      <!-- Resume (first everywhere) -->
+      <div class="order-1 lg:order-none lg:col-span-7 space-y-4">
         <AppCard tone="card">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -258,8 +258,8 @@ onMounted(async () => {
         </AppCard>
       </div>
 
-      <!-- RIGHT -->
-      <div class="lg:col-span-5">
+      <!-- Progress (desktop 2nd, mobile 3rd) -->
+      <div class="order-3 lg:order-none lg:col-span-5">
         <AppCard tone="card" class="h-full">
           <div class="flex items-center justify-between gap-3">
             <div>
@@ -279,7 +279,11 @@ onMounted(async () => {
           <div v-else class="mt-4 grid grid-cols-2 gap-2">
             <StatPill label="Answered" :value="data.progress?.totalAnswered || 0" />
             <StatPill label="Accuracy" :value="(data.progress?.accuracy ?? 0) + '%'" />
-            <StatPill label="Today" :value="data.progress?.todayAnswered || 0" :hint="`Goal ${data.progress?.dailyGoal || 10}`" />
+            <StatPill
+              label="Today"
+              :value="data.progress?.todayAnswered || 0"
+              :hint="`Goal ${data.progress?.dailyGoal || 10}`"
+            />
             <StatPill
               label="Saved"
               :value="(data.progress?.saved?.pastQuestions?.length || 0) + (data.progress?.saved?.materials?.length || 0)"
@@ -291,33 +295,34 @@ onMounted(async () => {
           </div>
         </AppCard>
       </div>
-    </div>
 
-    <!-- ✅ FIXED: Quick actions now span FULL width -->
-    <div class="grid gap-2 sm:gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-      <RouterLink
-        v-for="a in quickActions"
-        :key="a.to"
-        :to="a.to"
-        class="tile card-press p-3 sm:p-4 relative"
-        :aria-label="`Go to ${a.label}`"
-      >
-        <div class="flex items-start gap-3">
-          <div class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center shrink-0">
-            <span v-html="a.icon" />
-          </div>
+      <!-- Quick actions (desktop below row; mobile between Resume & Progress) -->
+      <div class="order-2 lg:order-none lg:col-span-12">
+        <div class="grid gap-2 sm:gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+          <RouterLink
+            v-for="a in quickActions"
+            :key="a.to"
+            :to="a.to"
+            class="tile card-press p-3 sm:p-4 relative"
+            :aria-label="`Go to ${a.label}`"
+          >
+            <div class="flex items-start gap-3">
+              <div class="h-10 w-10 rounded-xl2 bg-accent/15 grid place-items-center shrink-0">
+                <span v-html="a.icon" />
+              </div>
 
-          <div class="min-w-0">
-            <div class="text-sm font-extrabold clamp-2 leading-snug">{{ a.label }}</div>
-            <div class="mt-1 text-xs text-text-3 clamp-2">{{ a.sub }}</div>
-          </div>
+              <div class="min-w-0">
+                <div class="text-sm font-extrabold clamp-2 leading-snug">{{ a.label }}</div>
+                <div class="mt-1 text-xs text-text-3 clamp-2">{{ a.sub }}</div>
+              </div>
+            </div>
+
+            <span v-if="(a.count || 0) > 0" class="absolute top-3 right-3 count-badge">
+              {{ a.count > 99 ? '99+' : a.count }}
+            </span>
+          </RouterLink>
         </div>
-
-        <!-- count badge -->
-        <span v-if="(a.count || 0) > 0" class="absolute top-3 right-3 count-badge">
-          {{ a.count > 99 ? '99+' : a.count }}
-        </span>
-      </RouterLink>
+      </div>
     </div>
 
     <!-- Practice banks -->
