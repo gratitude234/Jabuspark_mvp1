@@ -36,10 +36,31 @@ async function setGoal(g) {
   await data.setDailyGoal(g)
 }
 
-/** Quick actions */
+/** JabuNotify overview */
 const notifyCount = computed(() => Number(data.progress?.notifyUnread || 0))
+const notifyChannels = computed(() => data.notify?.channels || [])
+const notifyFollowedCount = computed(() => notifyChannels.value.filter((c) => c.isFollowed).length)
+const recentNotify = computed(() => (data.notify?.feed || []).slice(0, 3))
+
+function fmtTime(s) {
+  if (!s) return ''
+  // backend typically returns UTC string; keep it resilient
+  const iso = String(s).includes('T') ? String(s) : String(s).replace(' ', 'T') + 'Z'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(s)
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+const notifySub = computed(() => {
+  if (notifyFollowedCount.value === 0) return 'Follow channels to get course uploads and campus alerts.'
+  if (notifyCount.value > 0) return `${notifyCount.value} new update${notifyCount.value === 1 ? '' : 's'} waiting.`
+  return 'New uploads & important updates — in channels you follow.'
+})
+
+/** Groups */
 const pendingGroups = computed(() => Number(data.groups?.pending || 0))
 
+/** Quick actions */
 const quickActions = computed(() => [
   {
     to: '/practice',
@@ -91,8 +112,8 @@ const quickActions = computed(() => [
   },
   {
     to: '/notify',
-    label: 'Updates',
-    sub: 'Announcements',
+    label: 'Announcements',
+    sub: notifyFollowedCount.value === 0 ? 'Follow channels' : notifyCount.value > 0 ? 'New updates' : 'Course uploads',
     count: notifyCount.value,
     icon: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -124,13 +145,16 @@ const banksFiltered = computed(() => {
   const q = search.value.trim().toLowerCase()
   const all = content.banks || []
   if (!q) return all
-  return all.filter(b => String(b.title || '').toLowerCase().includes(q))
+  return all.filter((b) => String(b.title || '').toLowerCase().includes(q))
 })
 
 onMounted(async () => {
   if (!auth.isAuthed) return
   await Promise.allSettled([
     data.fetchProgress?.(),
+    data.fetchNotifyChannels?.(),
+    data.fetchNotifyFeed?.({ limit: 3 }),
+    data.fetchGroupBadge?.(),
     content.fetchBanks?.({ courseId: firstCourseId.value || '' })
   ])
 })
@@ -153,8 +177,15 @@ onMounted(async () => {
       </div>
 
       <RouterLink to="/profile" class="icon-btn" aria-label="Open profile">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="h-5 w-5"
+        >
           <path d="M20 21a8 8 0 0 0-16 0" />
           <circle cx="12" cy="7" r="4" />
         </svg>
@@ -173,6 +204,71 @@ onMounted(async () => {
         <div class="mt-4 flex flex-col sm:flex-row gap-2">
           <RouterLink to="/onboarding" class="btn btn-primary btn-lg">Continue setup</RouterLink>
           <RouterLink to="/practice" class="btn btn-ghost btn-lg">Explore practice</RouterLink>
+        </div>
+      </div>
+    </AppCard>
+
+    <!-- Announcements spotlight (makes Notify feel first-class) -->
+    <AppCard tone="card" class="relative overflow-hidden">
+      <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/10 via-transparent to-transparent" />
+      <div class="relative">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="h2">Announcements</div>
+            <p class="sub mt-1 clamp-2">{{ notifySub }}</p>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <span class="chip">
+                <span class="font-semibold">Following</span>
+                <span class="badge">{{ notifyFollowedCount }}</span>
+              </span>
+              <span class="chip">
+                <span class="font-semibold">Unread</span>
+                <span class="badge">{{ notifyCount }}</span>
+              </span>
+            </div>
+          </div>
+
+          <RouterLink to="/notify" class="btn btn-primary btn-sm">
+            {{ notifyCount > 0 ? `View ${notifyCount > 99 ? '99+' : notifyCount} new` : 'Open' }}
+          </RouterLink>
+        </div>
+
+        <div v-if="notifyFollowedCount === 0" class="alert alert-warn mt-4">
+          You’re not following any channels yet. Follow your course channels so uploads show up instantly.
+          <div class="mt-3">
+            <RouterLink to="/notify" class="btn btn-ghost btn-sm">Follow channels</RouterLink>
+          </div>
+        </div>
+
+        <div v-else class="mt-4">
+          <div v-if="recentNotify.length === 0" class="text-sm text-text-3">
+            No announcements yet for your channels.
+          </div>
+
+          <div v-else class="grid gap-2">
+            <RouterLink
+              v-for="p in recentNotify"
+              :key="p.id"
+              to="/notify"
+              class="tile card-press p-3 sm:p-4"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="badge">{{ p.channelName || 'Updates' }}</span>
+                    <span v-if="p.isPinned" class="badge">Pinned</span>
+                    <span v-if="p.isRead === false" class="badge" style="border-color: rgba(124,58,237,.35)">
+                      New
+                    </span>
+                  </div>
+                  <div class="mt-2 text-sm font-extrabold clamp-2 leading-snug">{{ p.title || 'Announcement' }}</div>
+                  <div class="mt-1 text-xs text-text-3">{{ fmtTime(p.createdAt) }}</div>
+                </div>
+
+                <span class="badge">Open</span>
+              </div>
+            </RouterLink>
+          </div>
         </div>
       </div>
     </AppCard>
@@ -220,10 +316,7 @@ onMounted(async () => {
             </div>
 
             <div class="mt-4 flex flex-col sm:flex-row gap-2">
-              <RouterLink
-                :to="quickBank ? `/practice/${quickBank.id}` : '/practice'"
-                class="btn btn-primary btn-lg"
-              >
+              <RouterLink :to="quickBank ? `/practice/${quickBank.id}` : '/practice'" class="btn btn-primary btn-lg">
                 {{ quickBank ? 'Resume practice' : 'Start practice' }}
               </RouterLink>
               <RouterLink to="/materials" class="btn btn-ghost btn-lg">Open materials</RouterLink>
@@ -253,11 +346,7 @@ onMounted(async () => {
           <div v-else class="mt-4 grid grid-cols-2 gap-2">
             <StatPill label="Answered" :value="data.progress?.totalAnswered || 0" />
             <StatPill label="Accuracy" :value="(data.progress?.accuracy ?? 0) + '%'" />
-            <StatPill
-              label="Today"
-              :value="data.progress?.todayAnswered || 0"
-              :hint="`Goal ${data.progress?.dailyGoal || 10}`"
-            />
+            <StatPill label="Today" :value="data.progress?.todayAnswered || 0" :hint="`Goal ${data.progress?.dailyGoal || 10}`" />
             <StatPill
               label="Saved"
               :value="(data.progress?.saved?.pastQuestions?.length || 0) + (data.progress?.saved?.materials?.length || 0)"
@@ -326,12 +415,7 @@ onMounted(async () => {
       </div>
 
       <div v-else class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        <RouterLink
-          v-for="b in banksFiltered.slice(0, 6)"
-          :key="b.id"
-          :to="`/practice/${b.id}`"
-          class="tile card-press p-4"
-        >
+        <RouterLink v-for="b in banksFiltered.slice(0, 6)" :key="b.id" :to="`/practice/${b.id}`" class="tile card-press p-4">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="text-sm font-extrabold clamp-2">{{ b.title }}</div>
