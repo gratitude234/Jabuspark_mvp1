@@ -34,6 +34,19 @@ const busy = ref(false)
 const error = ref('')
 const savedOk = ref(false)
 
+// --- UI helpers ---
+const displayName = computed(() => (fullName.value || user.value?.fullName || '').trim() || 'Student')
+const initials = computed(() => {
+  const parts = String(displayName.value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+  const a = parts[0]?.[0] || 'S'
+  const b = parts.length > 1 ? parts[parts.length - 1]?.[0] : ''
+  return (a + b).toUpperCase()
+})
+const email = computed(() => user.value?.email || user.value?.mail || '')
+
 // --- Study goal & achievements ---
 const dailyGoal = ref(Number(data.progress?.dailyGoal || 10))
 
@@ -65,6 +78,13 @@ const nextLevelIn = computed(() => {
   const levelNow = Number(data.progress?.level || 1)
   const nextAt = levelNow * 250
   return Math.max(0, nextAt - xp)
+})
+
+const todayAnswered = computed(() => Number(data.progress?.todayAnswered || 0))
+const goalNow = computed(() => Number(data.progress?.dailyGoal || dailyGoal.value || 1))
+const goalPct = computed(() => {
+  const denom = goalNow.value || 1
+  return Math.min(100, Math.round((todayAnswered.value / denom) * 100))
 })
 
 async function saveDailyGoal() {
@@ -190,7 +210,6 @@ const dirtySections = computed(() => {
 const isDirty = computed(() => dirtySections.value.length > 0)
 
 const saveCtaLabel = computed(() => {
-  // clearer CTA (the whole goal of this change)
   return 'Save profile & study settings'
 })
 
@@ -429,15 +448,18 @@ onMounted(async () => {
 
 <template>
   <div class="page">
-    <!-- Sticky save bar (shows when user edits Study settings / Name / Courses) -->
+    <!-- Sticky save bar -->
     <div v-if="isDirty" class="fixed inset-x-0 bottom-3 z-40 px-3">
       <div class="container-app">
         <div class="card card-pad border border-border/70 bg-surface/80 backdrop-blur">
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-semibold">Unsaved changes</div>
+              <div class="flex items-center gap-2">
+                <span class="badge">Unsaved</span>
+                <div class="text-sm font-semibold">You have changes</div>
+              </div>
               <div class="text-xs text-text-3 mt-1">
-                You changed: <b>{{ dirtySections.join(', ') }}</b>. These will reset after reload unless you save.
+                Sections: <b>{{ dirtySections.join(', ') }}</b> — save to keep them after reload.
               </div>
             </div>
             <div class="flex flex-col sm:flex-row gap-2">
@@ -446,28 +468,80 @@ onMounted(async () => {
                 <span v-else>Saving…</span>
               </AppButton>
               <button class="btn btn-ghost" :disabled="busy" @click="resetToSaved">Discard</button>
-              <button class="btn btn-ghost" type="button" @click="scrollToId('profile-top')">Go to top</button>
+              <button class="btn btn-ghost" type="button" @click="scrollToId('profile-top')">Top</button>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Header -->
+    <!-- PROFILE HERO -->
     <AppCard id="profile-top" class="relative overflow-hidden">
-      <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/12 via-transparent to-transparent" />
-      <div class="relative">
-        <div class="h1">Profile</div>
-        <p class="sub mt-1">Update your name, study settings and course selections.</p>
+      <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/14 via-transparent to-transparent" />
 
-        <!-- Clarity chips: what this save button includes -->
-        <div class="mt-3 flex flex-wrap gap-2">
-          <span class="chip">Saves: Name</span>
-          <span class="chip">Faculty / Department / Level</span>
-          <span class="chip">Courses (auto + extras)</span>
+      <div class="relative">
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+          <div class="min-w-0">
+            <div class="kicker">Account</div>
+
+            <div class="mt-2 flex items-center gap-3">
+              <div class="h-12 w-12 rounded-2xl bg-accent/15 text-accent flex items-center justify-center font-extrabold">
+                {{ initials }}
+              </div>
+              <div class="min-w-0">
+                <div class="h1 leading-tight truncate">{{ displayName }}</div>
+                <div class="text-sm text-text-3 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  <span class="chip">Role: {{ role }}</span>
+                  <span v-if="email" class="chip">{{ email }}</span>
+                  <span class="chip">Level: {{ level }}</span>
+                </div>
+              </div>
+            </div>
+
+            <p class="sub mt-3 max-w-[70ch]">
+              Manage your study setup, carryover courses, and uploader access — all from one place.
+            </p>
+
+            <!-- Quick nav -->
+            <div class="mt-4 flex flex-wrap gap-2">
+              <button type="button" class="btn btn-ghost btn-sm" @click="scrollToId('study-goal')">Goal & badges</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="scrollToId('uploads-reps')">Uploads & reps</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="scrollToId('study-settings')">Study settings</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="scrollToId('account')">Account</button>
+            </div>
+          </div>
+
+          <div class="w-full lg:w-auto">
+            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+              <div class="card card-pad border border-border/70 bg-surface/60">
+                <div class="text-xs text-text-3">Today</div>
+                <div class="mt-1 text-2xl font-extrabold">{{ todayAnswered }}</div>
+                <div class="text-xs text-text-3 mt-1">answered • goal {{ goalNow }}</div>
+                <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" :aria-valuenow="goalPct" aria-valuemin="0" aria-valuemax="100">
+                  <div class="h-full bg-accent transition-all duration-200" :style="{ width: goalPct + '%' }" />
+                </div>
+              </div>
+
+              <div class="card card-pad border border-border/70 bg-surface/60">
+                <div class="text-xs text-text-3">Progress</div>
+                <div class="mt-1 text-2xl font-extrabold">Lvl {{ data.progress.level }}</div>
+                <div class="text-xs text-text-3 mt-1">{{ data.progress.xp }} XP • next in {{ nextLevelIn }} XP</div>
+              </div>
+            </div>
+
+            <div class="mt-2">
+              <AppButton class="w-full btn-primary" :disabled="busy" @click="save">
+                <span v-if="!busy">{{ saveCtaLabel }}</span>
+                <span v-else>Saving…</span>
+              </AppButton>
+              <button class="btn btn-ghost w-full mt-2" @click="logout">Log out</button>
+            </div>
+          </div>
         </div>
 
-        <div class="mt-5 grid gap-4 sm:grid-cols-2">
+        <div class="divider my-5" />
+
+        <div class="grid gap-4 sm:grid-cols-2">
           <div>
             <label class="label" for="pname">Full name</label>
             <input
@@ -480,12 +554,14 @@ onMounted(async () => {
             <p class="help">Used for your dashboard greeting and account display.</p>
           </div>
 
-          <div class="flex flex-col sm:items-end sm:justify-end gap-2">
-            <AppButton class="w-full sm:w-auto btn-primary" :disabled="busy" @click="save">
-              <span v-if="!busy">{{ saveCtaLabel }}</span>
-              <span v-else>Saving…</span>
-            </AppButton>
-            <button class="btn btn-ghost w-full sm:w-auto" @click="logout">Log out</button>
+          <div class="card card-pad border border-border/70 bg-surface/60">
+            <div class="text-sm font-semibold">What “Save” includes</div>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <span class="chip">Name</span>
+              <span class="chip">Faculty / Department / Level</span>
+              <span class="chip">Courses (auto + extras)</span>
+            </div>
+            <p class="help mt-2">Tip: the sticky bar appears when you change anything important.</p>
           </div>
         </div>
 
@@ -497,27 +573,35 @@ onMounted(async () => {
     </AppCard>
 
     <!-- Study goal -->
-    <AppCard>
-      <div class="h2">Study goal & achievements</div>
-      <p class="sub mt-1">Set a daily question goal and track your level and badges.</p>
+    <AppCard id="study-goal">
+      <div class="row">
+        <div>
+          <div class="h2">Study goal & achievements</div>
+          <p class="sub mt-1">Set a daily target and track your badges + level.</p>
+        </div>
+      </div>
 
       <div class="divider my-4" />
 
-      <div class="grid gap-4 sm:grid-cols-3">
+      <div class="grid gap-4 lg:grid-cols-3">
         <div class="card card-pad border border-border/70 bg-surface/60">
-          <div class="text-sm font-semibold">Daily goal</div>
-          <p class="sub mt-1">How many questions you want to answer today.</p>
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold">Daily goal</div>
+              <p class="sub mt-1">How many questions you aim to answer per day.</p>
+            </div>
+            <span class="badge">{{ goalPct }}%</span>
+          </div>
 
-          <div class="mt-3 flex items-center gap-2">
+          <div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
             <input
               v-model.number="dailyGoal"
               type="number"
               min="5"
               max="200"
-              class="input"
-              style="max-width: 130px"
+              class="input w-full sm:w-32"
             />
-            <AppButton size="sm" @click="saveDailyGoal">Save</AppButton>
+            <AppButton class="w-full sm:w-auto" size="sm" @click="saveDailyGoal">Save goal</AppButton>
           </div>
 
           <div class="mt-3 flex flex-wrap gap-2">
@@ -530,31 +614,33 @@ onMounted(async () => {
             Today: <b>{{ data.progress.todayAnswered }}</b> / {{ data.progress.dailyGoal }}
           </div>
           <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
-            <div
-              class="h-full bg-accent transition-all duration-200"
-              :style="{ width: Math.min(100, Math.round((data.progress.todayAnswered / (data.progress.dailyGoal || 1)) * 100)) + '%' }"
-            />
+            <div class="h-full bg-accent transition-all duration-200" :style="{ width: goalPct + '%' }" />
           </div>
         </div>
 
         <div class="card card-pad border border-border/70 bg-surface/60">
           <div class="text-sm font-semibold">Level</div>
-          <div class="mt-1 text-2xl font-extrabold">Level {{ data.progress.level }}</div>
+          <div class="mt-1 text-3xl font-extrabold">Level {{ data.progress.level }}</div>
           <div class="mt-2 text-sm text-text-2">{{ data.progress.xp }} XP</div>
           <div class="mt-2 text-xs text-text-3">Next level in {{ nextLevelIn }} XP</div>
+          <div class="divider my-4" />
+          <div class="text-xs text-text-3">
+            Keep your streak alive by answering at least <b>1</b> question daily.
+          </div>
         </div>
 
         <div class="card card-pad border border-border/70 bg-surface/60">
-          <div class="text-sm font-semibold">Badges</div>
-          <p class="sub mt-1">Small wins that keep you consistent.</p>
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold">Badges</div>
+              <p class="sub mt-1">Small wins that keep you consistent.</p>
+            </div>
+            <span class="badge">{{ badges.length }}</span>
+          </div>
+
           <div class="mt-3 flex flex-wrap gap-2">
             <span v-if="!badges.length" class="text-xs text-text-3">No badges yet — start practising!</span>
-            <span
-              v-for="b in badges"
-              :key="b.key"
-              class="badge"
-              :title="b.key"
-            >{{ b.label }}</span>
+            <span v-for="b in badges" :key="b.key" class="badge" :title="b.key">{{ b.label }}</span>
           </div>
         </div>
       </div>
@@ -565,7 +651,7 @@ onMounted(async () => {
       <div class="row">
         <div>
           <div class="h2">Uploads & course reps</div>
-          <p class="sub mt-1">One flow: set department → save → request access → get approved → upload.</p>
+          <p class="sub mt-1">Set department → save → request access → get approved → upload.</p>
         </div>
         <div class="flex gap-2">
           <button class="btn btn-ghost" :disabled="repBusy" @click="fetchRepStatus">
@@ -577,7 +663,7 @@ onMounted(async () => {
 
       <div class="divider my-4" />
 
-      <div class="grid gap-3 sm:grid-cols-2">
+      <div class="grid gap-3 lg:grid-cols-2">
         <div class="card card-pad border border-border/70 bg-surface/60">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -684,26 +770,26 @@ onMounted(async () => {
           </p>
         </div>
 
-        <!-- Section save CTA (same global save) -->
         <div class="flex flex-col sm:flex-row gap-2 sm:items-start">
           <AppButton class="w-full sm:w-auto btn-primary" :disabled="busy" @click="save">
             <span v-if="!busy">Save study settings</span>
             <span v-else>Saving…</span>
           </AppButton>
           <button class="btn btn-ghost w-full sm:w-auto" type="button" @click="scrollToId('profile-top')">
-            View full profile save
+            View full save
           </button>
         </div>
       </div>
 
       <div v-if="isStudySettingsDirty || isCoursesDirty" class="alert alert-ok mt-4" role="status">
-        You have unsaved changes in <b>{{ [isStudySettingsDirty ? 'Study settings' : null, isCoursesDirty ? 'Courses' : null].filter(Boolean).join(' & ') }}</b>.
+        You have unsaved changes in
+        <b>{{ [isStudySettingsDirty ? 'Study settings' : null, isCoursesDirty ? 'Courses' : null].filter(Boolean).join(' & ') }}</b>.
         Click <b>{{ saveCtaLabel }}</b> to keep them after reload.
       </div>
 
       <div class="divider my-4" />
 
-      <div class="grid gap-4 sm:grid-cols-3">
+      <div class="grid gap-4 lg:grid-cols-3">
         <div>
           <label class="label" for="pfac">Faculty</label>
           <AppSelect id="pfac" v-model="facultyId" :options="facultyOptions" placeholder="Select faculty…" />
@@ -741,11 +827,13 @@ onMounted(async () => {
           No courses found for this department/level yet. You can’t save these settings until default courses exist.
         </div>
 
-        <div v-else class="grid gap-2 sm:grid-cols-2">
+        <div v-else class="grid gap-2 lg:grid-cols-2">
           <div v-for="c in baseCourses" :key="c.id" class="card card-pad text-left border border-border/70 bg-surface/60">
             <div class="flex items-center justify-between gap-2">
-              <div class="text-sm font-semibold">{{ c.code }} — {{ c.title }} ({{ c.level }})</div>
-              <span class="text-xs px-2 py-1 rounded-full bg-accent/10 text-accent">Included</span>
+              <div class="text-sm font-semibold">
+                {{ c.code }} — <span class="text-text-2">{{ c.title }}</span> <span class="text-text-3">({{ c.level }})</span>
+              </div>
+              <span class="chip">Included</span>
             </div>
             <div class="text-xs text-text-3 mt-1">Auto-added (locked)</div>
           </div>
@@ -771,26 +859,29 @@ onMounted(async () => {
           :disabled="busy"
         />
 
-        <div v-if="selectedExtras.length" class="mt-3 flex flex-wrap gap-2">
-          <button
-            v-for="c in selectedExtras"
-            :key="c.id"
-            type="button"
-            class="chip"
-            @click="removeExtraCourse(c.id)"
-            :disabled="busy"
-            title="Remove"
-          >
-            {{ c.code }} <span class="opacity-70">×</span>
-          </button>
+        <div v-if="selectedExtras.length" class="mt-3">
+          <div class="text-xs text-text-3 mb-2">Selected extras (tap to remove)</div>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="c in selectedExtras"
+              :key="c.id"
+              type="button"
+              class="chip"
+              @click="removeExtraCourse(c.id)"
+              :disabled="busy"
+              title="Remove"
+            >
+              {{ c.code }} <span class="opacity-70">×</span>
+            </button>
+          </div>
         </div>
 
-        <div class="mt-3">
+        <div class="mt-4">
           <div v-if="extraOptions.length === 0" class="help">
             {{ courseQuery ? 'No courses match your search.' : 'Search to add carryover courses.' }}
           </div>
 
-          <div v-else class="grid gap-2 sm:grid-cols-2 mt-2">
+          <div v-else class="grid gap-2 lg:grid-cols-2 mt-2">
             <button
               v-for="c in extraOptions"
               :key="c.id"
@@ -800,7 +891,9 @@ onMounted(async () => {
               @click="addExtraCourse(c.id)"
             >
               <div class="flex items-center justify-between gap-2">
-                <div class="text-sm font-semibold">{{ c.code }} — {{ c.title }} ({{ c.level }})</div>
+                <div class="text-sm font-semibold">
+                  {{ c.code }} — <span class="text-text-2">{{ c.title }}</span> <span class="text-text-3">({{ c.level }})</span>
+                </div>
                 <span class="badge">+</span>
               </div>
               <div class="text-xs text-text-3 mt-1">Tap to add</div>
@@ -812,7 +905,6 @@ onMounted(async () => {
           Total courses: <b>{{ selectedCourseIds.length }}</b> (department + extras)
         </div>
 
-        <!-- Another save reminder at the bottom (when deep scrolling) -->
         <div v-if="isDirty" class="alert alert-ok mt-4" role="status">
           Tip: Click <b>{{ saveCtaLabel }}</b> (top or sticky bar) to keep these changes after reload.
         </div>
@@ -820,9 +912,13 @@ onMounted(async () => {
     </AppCard>
 
     <!-- Account -->
-    <AppCard>
-      <div class="h2">Account</div>
-      <p class="sub mt-1">Manage your session and app state.</p>
+    <AppCard id="account">
+      <div class="row">
+        <div>
+          <div class="h2">Account</div>
+          <p class="sub mt-1">Manage your session and app navigation.</p>
+        </div>
+      </div>
 
       <div class="divider my-4" />
 
