@@ -287,23 +287,55 @@ export const useDataStore = defineStore('data', {
     // ----------------------------
     // JabuNotify (Announcements)
     // ----------------------------
+    _notifySetUnreadTotal(total) {
+      const t = Math.max(0, Number(total) || 0)
+      this.notify = { ...this.notify, unreadTotal: t }
+      // mirror into progress for top-bar badge
+      this.progress = { ...this.progress, notifyUnread: t }
+      storage.set('progress', this.progress)
+      return t
+    },
+
+    _notifyBumpChannelUnread(channelId, delta) {
+      const d = Number(delta) || 0
+      if (!channelId || !d) return
+      const channels = (this.notify.channels || []).map((c) => {
+        if (c.id !== channelId) return c
+        const next = Math.max(0, Number(c.unreadCount || 0) + d)
+        return { ...c, unreadCount: next }
+      })
+      this.notify = { ...this.notify, channels }
+    },
+
     async fetchNotifyChannels() {
       const res = await apiFetch('/notify/channels')
       const channels = res?.data?.channels || []
       const unreadTotal = Number(res?.data?.unreadTotal || 0)
-      this.notify = { ...this.notify, channels, unreadTotal }
 
-      // mirror into progress for top-bar badge
-      this.progress = { ...this.progress, notifyUnread: unreadTotal }
-      storage.set('progress', this.progress)
+      this.notify = { ...this.notify, channels, unreadTotal }
+      this._notifySetUnreadTotal(unreadTotal)
       return channels
     },
 
     async toggleNotifyFollow(channelId, follow = null) {
       const res = await apiFetch('/notify/follow', { method: 'POST', body: { channelId, follow } })
       const isFollowed = !!res?.data?.isFollowed
-      const channels = (this.notify.channels || []).map((c) => (c.id === channelId ? { ...c, isFollowed } : c))
+
+      // optimistic local update (keeps UI snappy even before next refresh)
+      const prev = (this.notify.channels || []).find((c) => c.id === channelId)
+      const prevUnread = Number(prev?.unreadCount || 0)
+
+      const channels = (this.notify.channels || []).map((c) => {
+        if (c.id !== channelId) return c
+        // if user unfollows, treat unread as 0 since it won't count anymore
+        const nextUnread = isFollowed ? Number(c.unreadCount || 0) : 0
+        return { ...c, isFollowed, unreadCount: nextUnread }
+      })
       this.notify = { ...this.notify, channels }
+
+      // adjust global unread only when unfollowing (following may add unread we don't know yet)
+      if (!isFollowed && prevUnread) this._notifySetUnreadTotal(Number(this.notify.unreadTotal || 0) - prevUnread)
+
       return isFollowed
     },
 
@@ -312,27 +344,61 @@ export const useDataStore = defineStore('data', {
       if (channelId) qs.set('channelId', String(channelId))
       const res = await apiFetch(`/notify/feed?${qs.toString()}`)
       const feed = res?.data?.posts || []
+
+      // Keep feed in store (UI decides grouping/pinning)
       this.notify = { ...this.notify, feed }
       return feed
     },
 
     async markNotifyRead(postId) {
+      // find first so we can update counts accurately
+      const prevPost = (this.notify.feed || []).find((p) => p.id === postId)
+      const wasUnread = prevPost && !prevPost.isRead
+      const chId = prevPost?.channelId
+
       await apiFetch('/notify/read', { method: 'POST', body: { postId } })
 
+      // Update feed
       const feed = (this.notify.feed || []).map((p) => (p.id === postId ? { ...p, isRead: true } : p))
       this.notify = { ...this.notify, feed }
 
-      // update badge counts optimistically
-      const current = Number(this.progress.notifyUnread || 0)
-      this.progress = { ...this.progress, notifyUnread: Math.max(0, current - 1) }
-      storage.set('progress', this.progress)
+      // Update badge counts optimistically (only if this post was unread)
+      if (wasUnread) {
+        this._notifySetUnreadTotal(Number(this.notify.unreadTotal || 0) - 1)
+        if (chId) this._notifyBumpChannelUnread(chId, -1)
+      }
+
       return true
     },
 
     async markAllNotifyRead({ channelId = '' } = {}) {
-      await apiFetch('/notify/read', { method: 'POST', body: { all: true, channelId: channelId || undefined } })
-      // refresh channels to update unread counts
-      await Promise.allSettled([this.fetchNotifyChannels(), this.fetchNotifyFeed({ channelId })])
+      // optimistic UI update
+      const cid = channelId ? String(channelId) : ''
+      const feed = (this.notify.feed || []).map((p) => {
+        if (!cid || p.channelId === cid) return { ...p, isRead: true }
+        return p
+      })
+      this.notify = { ...this.notify, feed }
+
+      if (cid) {
+        // subtract that channel's unread from total
+        const ch = (this.notify.channels || []).find((c) => c.id === cid)
+        const chUnread = Number(ch?.unreadCount || 0)
+        if (chUnread) this._notifySetUnreadTotal(Number(this.notify.unreadTotal || 0) - chUnread)
+
+        const channels = (this.notify.channels || []).map((c) => (c.id === cid ? { ...c, unreadCount: 0 } : c))
+        this.notify = { ...this.notify, channels }
+      } else {
+        // global mark all
+        const channels = (this.notify.channels || []).map((c) => ({ ...c, unreadCount: 0 }))
+        this.notify = { ...this.notify, channels }
+        this._notifySetUnreadTotal(0)
+      }
+
+      await apiFetch('/notify/read', { method: 'POST', body: { all: true, channelId: cid || undefined } })
+
+      // refresh channels+feed to ensure server truth (pinned, expiry, etc)
+      await Promise.allSettled([this.fetchNotifyChannels(), this.fetchNotifyFeed({ channelId: cid })])
       return true
     },
 

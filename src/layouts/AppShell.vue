@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useDataStore } from '../stores/data'
@@ -16,7 +16,9 @@ const isMatch = (prefix) => {
 
 const notifyUnread = computed(() => Number(data.progress?.notifyUnread || 0))
 const groupPending = computed(() => Number(data.groups?.pending || 0))
-const missionsClaimable = computed(() => Number(data.missions?.claimable ?? data.progress?.missionsClaimable ?? 0))
+const missionsClaimable = computed(() =>
+  Number(data.missions?.claimable ?? data.progress?.missionsClaimable ?? 0)
+)
 
 const firstName = computed(() => {
   const full = (auth.user?.fullName || 'Student').trim()
@@ -37,9 +39,7 @@ const desktopLinkClass = (active) => {
     'text-sm font-semibold transition',
     'px-1 py-2',
     'border-b-2',
-    active
-      ? 'text-text border-accent'
-      : 'text-text-2 border-transparent hover:text-text hover:border-white/10'
+    active ? 'text-text border-accent' : 'text-text-2 border-transparent hover:text-text hover:border-white/10'
   ].join(' ')
 }
 
@@ -60,17 +60,65 @@ function iconPath(key) {
   }
 }
 
-onMounted(async () => {
-  // keep badges fresh
-  if (auth.isAuthed) {
+/**
+ * Badge sync strategy (important for Notify):
+ * - Keep top-bar dots accurate even if user navigates around.
+ * - Refresh on mount + on tab focus/visibility.
+ * - Throttle to avoid spamming the API.
+ */
+let lastBadgeSync = 0
+let syncing = false
+const BADGE_TTL_MS = 35_000
+
+async function refreshBadges({ force = false } = {}) {
+  if (!auth.isAuthed) return
+  if (syncing) return
+
+  const now = Date.now()
+  if (!force && now - lastBadgeSync < BADGE_TTL_MS) return
+
+  syncing = true
+  lastBadgeSync = now
+  try {
     await Promise.allSettled([
       data.fetchProgress(),
       data.fetchMissions(),
       data.fetchNotifyChannels(),
       data.fetchGroupBadge()
     ])
+  } finally {
+    syncing = false
   }
+}
+
+function onFocus() {
+  refreshBadges()
+}
+function onVisibility() {
+  if (document.visibilityState === 'visible') refreshBadges()
+}
+
+onMounted(async () => {
+  // initial load
+  await refreshBadges({ force: true })
+
+  // keep badges fresh when user comes back to the tab/app
+  window.addEventListener('focus', onFocus, { passive: true })
+  document.addEventListener('visibilitychange', onVisibility, { passive: true })
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', onFocus)
+  document.removeEventListener('visibilitychange', onVisibility)
+})
+
+// light sync on navigation changes (throttled by TTL)
+watch(
+  () => route.path,
+  () => {
+    refreshBadges()
+  }
+)
 </script>
 
 <template>
@@ -110,8 +158,15 @@ onMounted(async () => {
             :class="isMatch('/notify') ? 'ring-1 ring-white/10 bg-white/[0.06]' : ''"
             aria-label="Announcements"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-5 w-5"
+            >
               <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 7h18s-3 0-3-7" />
               <path d="M13.73 21a2 2 0 0 1-3.46 0" />
             </svg>
@@ -128,8 +183,16 @@ onMounted(async () => {
             :class="isMatch('/groups') ? 'ring-1 ring-white/10 bg-white/[0.06]' : ''"
             aria-label="Study Groups"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-5 w-5"
+              aria-hidden="true"
+            >
               <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
               <circle cx="9" cy="7" r="4" />
               <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
@@ -148,8 +211,16 @@ onMounted(async () => {
             :class="isMatch('/missions') ? 'ring-1 ring-white/10 bg-white/[0.06]' : ''"
             aria-label="Weekly Missions"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-5 w-5"
+              aria-hidden="true"
+            >
               <circle cx="12" cy="12" r="10" />
               <circle cx="12" cy="12" r="6" />
               <circle cx="12" cy="12" r="2" />
@@ -160,7 +231,7 @@ onMounted(async () => {
             />
           </RouterLink>
 
-          <!-- Profile: cleaner chip -->
+          <!-- Profile -->
           <RouterLink
             to="/profile"
             class="chip hidden sm:inline-flex hover:bg-white/[0.06]"

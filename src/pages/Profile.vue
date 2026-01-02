@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { useDataStore } from '../stores/data'
+import { apiFetch } from '../utils/api'
+
 import AppCard from '../components/AppCard.vue'
 import AppSelect from '../components/AppSelect.vue'
 import AppButton from '../components/AppButton.vue'
@@ -32,7 +34,7 @@ const busy = ref(false)
 const error = ref('')
 const savedOk = ref(false)
 
-// Study goal & achievements
+// --- Study goal & achievements ---
 const dailyGoal = ref(Number(data.progress?.dailyGoal || 10))
 
 watch(
@@ -69,6 +71,7 @@ async function saveDailyGoal() {
   await data.setDailyGoal(dailyGoal.value)
 }
 
+// --- Study settings ---
 const levelOptions = [
   { value: 100, label: '100 Level' },
   { value: 200, label: '200 Level' },
@@ -150,18 +153,7 @@ watch([departmentId, level], async () => {
   prevBaseIds.value = [...baseCourseIds.value]
 })
 
-onMounted(async () => {
-  await catalog.bootstrap()
-  await catalog.fetchCourses() // full catalog for search + course labels
-
-  await data.fetchProgress()
-
-  if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
-  await refreshDeptCourses()
-
-  prevBaseIds.value = [...baseCourseIds.value]
-})
-
+// --- Save profile ---
 async function save() {
   error.value = ''
   savedOk.value = false
@@ -184,6 +176,9 @@ async function save() {
       courseIds: selectedCourseIds.value,
     })
     savedOk.value = true
+
+    // After saving, refresh rep status so request scope is consistent
+    await fetchRepStatus()
   } catch (e) {
     error.value = e?.message || 'Failed to save changes.'
   } finally {
@@ -196,10 +191,12 @@ async function logout() {
   router.push('/auth/login')
 }
 
-/**
- * Course Rep / Upload workflow helpers (UX only; no backend changes)
- */
-const hasStudySetup = computed(() => !!facultyId.value && !!departmentId.value && !!level.value && !!(fullName.value || '').trim())
+// --- Upload / course rep workflow (perfected) ---
+// Gate: require saved study setup before request
+const hasStudySetup = computed(() => {
+  const n = (fullName.value || '').trim()
+  return !!n && !!facultyId.value && !!departmentId.value && !!level.value
+})
 
 const isProfileDirty = computed(() => {
   const u = user.value || {}
@@ -212,34 +209,91 @@ const isProfileDirty = computed(() => {
   )
 })
 
-// Best-effort: if backend already provides request state anywhere, we’ll display it.
-// If not, the UI still works (falls back to “Not requested”).
-const repRequestRaw = computed(() => {
+// uploads disabled (admin toggle)
+const uploadsDisabled = computed(() => {
   const u = user.value || {}
   const p = profile.value || {}
-  return (
-    u.repRequest ||
-    u.rep_request ||
-    u.courseRepRequest ||
-    p.repRequest ||
-    p.rep_request ||
-    p.courseRepRequest ||
-    null
+  return Boolean(
+    u.uploadsDisabled ??
+    u.uploads_disabled ??
+    p.uploadsDisabled ??
+    p.uploads_disabled ??
+    false
   )
 })
 
+// Rep scope: assigned courses
+const repCourseIds = computed(() => {
+  const u = user.value || {}
+  const p = profile.value || {}
+  const ids =
+    p.repCourseIds ||
+    p.rep_course_ids ||
+    u.repCourseIds ||
+    u.rep_course_ids ||
+    []
+  return Array.isArray(ids) ? ids.map(x => String(x)) : []
+})
+
+const coursesById = computed(() => {
+  const m = new Map()
+  for (const c of (catalog.courses || [])) m.set(String(c.id), c)
+  return m
+})
+
+const repCoursesLabel = computed(() => {
+  const ids = repCourseIds.value
+  if (!ids.length) return []
+  return ids
+    .map(id => coursesById.value.get(String(id)))
+    .filter(Boolean)
+    .map(c => `${c.code}`)
+})
+
+// Rep request status: pull from /rep/my (source of truth)
+const repBusy = ref(false)
+const repError = ref('')
+const repInfo = ref(null) // { status, message, reason, requestedAt, decidedAt, ... }
+
+function normalizeRepInfo(res) {
+  // supports {data:{...}} or {...}
+  const r = res?.data ?? res
+  if (!r || typeof r !== 'object') return null
+  return r
+}
+
+async function fetchRepStatus() {
+  repError.value = ''
+  repBusy.value = true
+  try {
+    const res = await apiFetch('/rep/my', { method: 'GET' })
+    repInfo.value = normalizeRepInfo(res)
+  } catch (e) {
+    // Non-fatal: UI still works without it
+    repInfo.value = null
+    repError.value = ''
+  } finally {
+    repBusy.value = false
+  }
+}
+
 const repState = computed(() => {
+  // hard truth by role
   if (role.value === 'admin') return 'admin'
   if (role.value === 'course_rep') return 'approved'
 
-  const p = profile.value || {}
-  const raw =
-    repRequestRaw.value?.status ||
-    repRequestRaw.value?.state ||
-    p.repStatus ||
-    p.rep_status ||
-    null
+  // preferred: /rep/my
+  const s1 = repInfo.value?.status || repInfo.value?.state
+  if (s1) {
+    const s = String(s1).toLowerCase()
+    if (s === 'rejected' || s === 'denied') return 'denied'
+    if (s === 'approved') return 'approved'
+    if (s === 'pending') return 'pending'
+  }
 
+  // fallback: any fields in profile
+  const p = profile.value || {}
+  const raw = p.repStatus || p.rep_status || null
   if (!raw) return 'none'
   const s = String(raw).toLowerCase()
   if (s === 'rejected') return 'denied'
@@ -256,6 +310,16 @@ const repStateLabel = computed(() => {
   }
 })
 
+const repHint = computed(() => {
+  if (uploadsDisabled.value && (role.value === 'course_rep' || role.value === 'admin')) {
+    return 'Uploads are currently disabled for your account. Contact an admin.'
+  }
+  if (repState.value === 'pending') return 'Your request is under review.'
+  if (repState.value === 'denied') return repInfo.value?.reason || repInfo.value?.message || 'Your request was denied. You can update and resubmit.'
+  if (repState.value === 'approved') return 'You can upload for your assigned courses.'
+  return 'Apply to become a course rep to upload past questions and materials.'
+})
+
 function scrollToId(id) {
   const el = document.getElementById(id)
   if (!el) return
@@ -263,14 +327,23 @@ function scrollToId(id) {
 }
 
 async function goRepRequest() {
-  // Gate 1: must have setup fields picked
+  error.value = ''
+
+  // Gate 1: must have setup fields
   if (!hasStudySetup.value) {
-    error.value = 'Set your Faculty, Department and Level first (then save) before requesting upload access.'
+    error.value = 'Set your Full name, Faculty, Department and Level first (then save) before requesting upload access.'
     scrollToId('study-settings')
     return
   }
 
-  // Gate 2: avoid wrong-department requests by saving before opening request flow
+  // Gate 2: must have department courses loaded (prevents requests before catalog is ready)
+  if (baseCourseIds.value.length === 0) {
+    error.value = 'No department courses found for your selected department/level yet. Change department/level or contact admin.'
+    scrollToId('study-settings')
+    return
+  }
+
+  // Gate 3: avoid wrong-department requests by saving first
   if (isProfileDirty.value) {
     await save()
     if (error.value) return
@@ -280,12 +353,33 @@ async function goRepRequest() {
 }
 
 function goUploads() {
+  error.value = ''
+  if (uploadsDisabled.value) {
+    error.value = 'Uploads are disabled for your account. Contact an admin.'
+    return
+  }
   router.push('/uploads')
 }
+
+// --- Lifecycle ---
+onMounted(async () => {
+  await catalog.bootstrap()
+  await catalog.fetchCourses() // full catalog for search + course labels
+
+  await data.fetchProgress()
+
+  if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
+  await refreshDeptCourses()
+  prevBaseIds.value = [...baseCourseIds.value]
+
+  // pull rep status once profile is loaded
+  await fetchRepStatus()
+})
 </script>
 
 <template>
   <div class="page">
+    <!-- Header -->
     <AppCard class="relative overflow-hidden">
       <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/12 via-transparent to-transparent" />
       <div class="relative">
@@ -319,6 +413,7 @@ function goUploads() {
       </div>
     </AppCard>
 
+    <!-- Study goal -->
     <AppCard>
       <div class="h2">Study goal & achievements</div>
       <p class="sub mt-1">Set a daily question goal and track your level and badges.</p>
@@ -382,41 +477,58 @@ function goUploads() {
       </div>
     </AppCard>
 
-    <!-- ✅ Improved workflow -->
+    <!-- ✅ Perfected workflow entrypoint -->
     <AppCard id="uploads-reps">
       <div class="row">
         <div>
           <div class="h2">Uploads & course reps</div>
-          <p class="sub mt-1">
-            One flow: set your department → request upload access → get approved → upload content.
-          </p>
+          <p class="sub mt-1">One flow: set department → request access → get approved → upload.</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost" :disabled="repBusy" @click="fetchRepStatus">
+            <span v-if="!repBusy">Refresh status</span>
+            <span v-else>Refreshing…</span>
+          </button>
         </div>
       </div>
 
       <div class="divider my-4" />
 
       <div class="grid gap-3 sm:grid-cols-2">
-        <!-- Main flow card (all users see this) -->
+        <!-- Main workflow card -->
         <div class="card card-pad border border-border/70 bg-surface/60">
           <div class="flex items-start justify-between gap-3">
-            <div>
+            <div class="min-w-0">
               <div class="text-sm font-semibold">Uploader access</div>
-              <p class="sub mt-1">
-                <span v-if="role === 'course_rep'">You can upload for your assigned courses.</span>
-                <span v-else-if="role === 'admin'">Admins can upload and manage course reps.</span>
-                <span v-else>Apply to become a course rep (class rep/department rep) to upload past questions and materials.</span>
-              </p>
+              <p class="sub mt-1">{{ repHint }}</p>
+
+              <div v-if="repState === 'approved' && repCourseIds.length" class="mt-3">
+                <div class="text-xs text-text-3 mb-2">Assigned courses</div>
+                <div class="flex flex-wrap gap-2">
+                  <span v-for="(c, i) in repCoursesLabel.slice(0, 10)" :key="c + i" class="chip">{{ c }}</span>
+                  <span v-if="repCoursesLabel.length > 10" class="chip">+{{ repCoursesLabel.length - 10 }} more</span>
+                </div>
+              </div>
             </div>
+
             <span class="badge" :title="repState">{{ repStateLabel }}</span>
           </div>
 
           <!-- Guardrails -->
           <div v-if="role !== 'course_rep' && role !== 'admin' && !hasStudySetup" class="alert alert-danger mt-3" role="status">
-            Set your Faculty, Department and Level first (then save) before requesting upload access.
+            Set your Full name, Faculty, Department and Level first (then save) before requesting upload access.
           </div>
 
           <div v-else-if="isProfileDirty" class="alert alert-ok mt-3" role="status">
             You have unsaved profile changes — save first so your request uses the correct department/level.
+          </div>
+
+          <div v-else-if="baseCourseIds.length === 0 && departmentId" class="alert alert-danger mt-3" role="status">
+            No department courses found for this department/level yet.
+          </div>
+
+          <div v-if="uploadsDisabled && (role === 'course_rep' || role === 'admin')" class="alert alert-danger mt-3" role="status">
+            Uploads are disabled for your account.
           </div>
 
           <!-- Actions -->
@@ -425,12 +537,34 @@ function goUploads() {
             <AppButton
               v-if="role === 'course_rep' || role === 'admin'"
               class="btn-primary"
+              :disabled="uploadsDisabled"
               @click="goUploads"
             >
               Open uploads
             </AppButton>
 
-            <!-- Course reps can request expansion -->
+            <!-- Pending -->
+            <button
+              v-else-if="repState === 'pending'"
+              type="button"
+              class="btn btn-ghost"
+              disabled
+            >
+              Request pending
+            </button>
+
+            <!-- Denied / None -->
+            <button
+              v-else-if="role !== 'admin'"
+              type="button"
+              class="btn btn-ghost"
+              @click="goRepRequest"
+            >
+              <span v-if="repState === 'denied'">Edit & resubmit request</span>
+              <span v-else>Apply for upload access</span>
+            </button>
+
+            <!-- Approved reps can request more -->
             <button
               v-if="role === 'course_rep'"
               type="button"
@@ -440,34 +574,23 @@ function goUploads() {
               Request more access
             </button>
 
-            <!-- Students apply -->
-            <button
-              v-else-if="role !== 'admin'"
-              type="button"
-              class="btn btn-ghost"
-              @click="goRepRequest"
-            >
-              Apply for upload access
-            </button>
-
             <!-- Helpful navigation -->
             <button type="button" class="btn btn-ghost" @click="scrollToId('study-settings')">
-              Go to study settings
+              Study settings
             </button>
           </div>
 
-          <!-- Micro “how it works” (makes it obvious) -->
           <div class="mt-4 text-xs text-text-3">
             <div class="font-semibold text-text-2 mb-1">How it works</div>
             <ul class="list-disc pl-4 space-y-1">
-              <li>Set your department and level (Study settings) and save.</li>
-              <li>Request upload access (Course rep). Admin reviews it.</li>
-              <li>Once approved, “Open uploads” unlocks for you here.</li>
+              <li>Save your department & level.</li>
+              <li>Request uploader access (course rep).</li>
+              <li>After approval, uploads unlock instantly here.</li>
             </ul>
           </div>
         </div>
 
-        <!-- Admin tools OR helper card -->
+        <!-- Admin tools OR helper -->
         <div v-if="role === 'admin'" class="card card-pad border border-border/70 bg-surface/60">
           <div class="text-sm font-semibold">Admin tools</div>
           <p class="sub mt-1">Review requests, manage reps and audit upload changes.</p>
@@ -480,17 +603,18 @@ function goUploads() {
         </div>
 
         <div v-else class="card card-pad border border-border/70 bg-surface/60">
-          <div class="text-sm font-semibold">Tip for reps</div>
+          <div class="text-sm font-semibold">Upload quality tips</div>
           <p class="sub mt-1">
-            Keep uploads clean and correctly tagged (course, level, semester, session). Incorrect uploads may be rejected.
+            Always pick the correct course, session and semester. Wrong tagging leads to rejection.
           </p>
           <div class="mt-3 text-xs text-text-3">
-            If you’re a department rep, request access for the department scope — not just one course.
+            If you’re a department rep, request access for department scope — not just one course.
           </div>
         </div>
       </div>
     </AppCard>
 
+    <!-- Study settings -->
     <AppCard id="study-settings">
       <div class="h2">Study settings</div>
       <p class="sub mt-1">These control what content you see by default.</p>
@@ -608,6 +732,7 @@ function goUploads() {
       </div>
     </AppCard>
 
+    <!-- Account -->
     <AppCard>
       <div class="h2">Account</div>
       <p class="sub mt-1">Manage your session and app state.</p>
