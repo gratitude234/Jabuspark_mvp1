@@ -34,19 +34,6 @@ const busy = ref(false)
 const error = ref('')
 const savedOk = ref(false)
 
-// --- UI helpers ---
-const displayName = computed(() => (fullName.value || user.value?.fullName || '').trim() || 'Student')
-const initials = computed(() => {
-  const parts = String(displayName.value || '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-  const a = parts[0]?.[0] || 'S'
-  const b = parts.length > 1 ? parts[parts.length - 1]?.[0] : ''
-  return (a + b).toUpperCase()
-})
-const email = computed(() => user.value?.email || user.value?.mail || '')
-
 // --- Study goal & achievements ---
 const dailyGoal = ref(Number(data.progress?.dailyGoal || 10))
 
@@ -56,6 +43,8 @@ watch(
     if (typeof v === 'number' && !Number.isNaN(v)) dailyGoal.value = v
   }
 )
+
+const goalBusy = ref(false)
 
 const badgeLabels = {
   first_10: 'First 10 answered',
@@ -80,15 +69,20 @@ const nextLevelIn = computed(() => {
   return Math.max(0, nextAt - xp)
 })
 
-const todayAnswered = computed(() => Number(data.progress?.todayAnswered || 0))
-const goalNow = computed(() => Number(data.progress?.dailyGoal || dailyGoal.value || 1))
-const goalPct = computed(() => {
-  const denom = goalNow.value || 1
-  return Math.min(100, Math.round((todayAnswered.value / denom) * 100))
+const progressTodayAnswered = computed(() => Number(data.progress?.todayAnswered || 0))
+const progressDailyGoal = computed(() => Number(data.progress?.dailyGoal || dailyGoal.value || 1))
+const progressPct = computed(() => {
+  const denom = progressDailyGoal.value || 1
+  return Math.min(100, Math.round((progressTodayAnswered.value / denom) * 100))
 })
 
 async function saveDailyGoal() {
-  await data.setDailyGoal(dailyGoal.value)
+  goalBusy.value = true
+  try {
+    await data.setDailyGoal(dailyGoal.value)
+  } finally {
+    goalBusy.value = false
+  }
 }
 
 // --- Study settings ---
@@ -101,11 +95,23 @@ const levelOptions = [
   { value: 600, label: '600 Level' },
 ]
 
-const facultyOptions = computed(() => (catalog.faculties || []).map(f => ({ value: f.id, label: f.name })))
-const departmentOptions = computed(() => (catalog.departments || []).map(d => ({ value: d.id, label: d.name })))
+const facultyOptions = computed(() => (catalog.faculties || []).map((f) => ({ value: f.id, label: f.name })))
+const departmentOptions = computed(() => (catalog.departments || []).map((d) => ({ value: d.id, label: d.name })))
+
+const displayFaculty = computed(() => {
+  const v = facultyId.value
+  if (!v) return '—'
+  return facultyOptions.value.find((x) => String(x.value) === String(v))?.label || '—'
+})
+const displayDepartment = computed(() => {
+  const v = departmentId.value
+  if (!v) return '—'
+  return departmentOptions.value.find((x) => String(x.value) === String(v))?.label || '—'
+})
+const displayLevel = computed(() => (level.value ? `${level.value} Level` : '—'))
 
 const baseCourses = computed(() => catalog.deptCourses || [])
-const baseCourseIds = computed(() => baseCourses.value.map(c => c.id))
+const baseCourseIds = computed(() => baseCourses.value.map((c) => c.id))
 
 // Track previous base ids so we can preserve extras if department/level changes
 const prevBaseIds = ref([])
@@ -117,9 +123,9 @@ const selectedCourseIds = computed(() => {
 
 const selectedExtras = computed(() => {
   const base = new Set(baseCourseIds.value)
-  const byId = new Map((catalog.courses || []).map(c => [c.id, c]))
-  const extras = pickedCourseIds.value.filter(id => !base.has(id))
-  return extras.map(id => byId.get(id)).filter(Boolean)
+  const byId = new Map((catalog.courses || []).map((c) => [c.id, c]))
+  const extras = pickedCourseIds.value.filter((id) => !base.has(id))
+  return extras.map((id) => byId.get(id)).filter(Boolean)
 })
 
 const extraOptions = computed(() => {
@@ -127,10 +133,10 @@ const extraOptions = computed(() => {
   const base = new Set(baseCourseIds.value)
   const selected = new Set(selectedCourseIds.value)
 
-  let list = (catalog.courses || []).filter(c => !base.has(c.id) && !selected.has(c.id))
+  let list = (catalog.courses || []).filter((c) => !base.has(c.id) && !selected.has(c.id))
   if (!q) return list.slice(0, 20)
 
-  list = list.filter(c => (`${c.code} ${c.title}`.toLowerCase().includes(q)))
+  list = list.filter((c) => (`${c.code} ${c.title}`.toLowerCase().includes(q)))
   return list.slice(0, 20)
 })
 
@@ -141,7 +147,7 @@ function addExtraCourse(id) {
 }
 
 function removeExtraCourse(id) {
-  pickedCourseIds.value = pickedCourseIds.value.filter(x => x !== id)
+  pickedCourseIds.value = pickedCourseIds.value.filter((x) => x !== id)
 }
 
 async function refreshDeptCourses() {
@@ -163,7 +169,7 @@ watch([departmentId, level], async () => {
   courseQuery.value = ''
 
   const oldBase = new Set(prevBaseIds.value)
-  const oldExtras = pickedCourseIds.value.filter(id => !oldBase.has(id))
+  const oldExtras = pickedCourseIds.value.filter((id) => !oldBase.has(id))
 
   await refreshDeptCourses()
 
@@ -175,7 +181,7 @@ watch([departmentId, level], async () => {
 
 // --- UX: dirty-state + clarity about what "Save" does ---
 function asStrList(arr) {
-  return (Array.isArray(arr) ? arr : []).map(x => String(x)).sort()
+  return (Array.isArray(arr) ? arr : []).map((x) => String(x)).sort()
 }
 function sameList(a, b) {
   const A = asStrList(a)
@@ -209,9 +215,7 @@ const dirtySections = computed(() => {
 
 const isDirty = computed(() => dirtySections.value.length > 0)
 
-const saveCtaLabel = computed(() => {
-  return 'Save profile & study settings'
-})
+const saveCtaLabel = computed(() => 'Save profile & study settings')
 
 function scrollToId(id) {
   const el = document.getElementById(id)
@@ -298,28 +302,23 @@ const uploadsDisabled = computed(() => {
   const p = profile.value || {}
   return Boolean(
     u.uploadsDisabled ??
-    u.uploads_disabled ??
-    p.uploadsDisabled ??
-    p.uploads_disabled ??
-    false
+      u.uploads_disabled ??
+      p.uploadsDisabled ??
+      p.uploads_disabled ??
+      false
   )
 })
 
 const repCourseIds = computed(() => {
   const u = user.value || {}
   const p = profile.value || {}
-  const ids =
-    p.repCourseIds ||
-    p.rep_course_ids ||
-    u.repCourseIds ||
-    u.rep_course_ids ||
-    []
-  return Array.isArray(ids) ? ids.map(x => String(x)) : []
+  const ids = p.repCourseIds || p.rep_course_ids || u.repCourseIds || u.rep_course_ids || []
+  return Array.isArray(ids) ? ids.map((x) => String(x)) : []
 })
 
 const coursesById = computed(() => {
   const m = new Map()
-  for (const c of (catalog.courses || [])) m.set(String(c.id), c)
+  for (const c of catalog.courses || []) m.set(String(c.id), c)
   return m
 })
 
@@ -327,9 +326,9 @@ const repCoursesLabel = computed(() => {
   const ids = repCourseIds.value
   if (!ids.length) return []
   return ids
-    .map(id => coursesById.value.get(String(id)))
+    .map((id) => coursesById.value.get(String(id)))
     .filter(Boolean)
-    .map(c => `${c.code}`)
+    .map((c) => `${c.code}`)
 })
 
 const repBusy = ref(false)
@@ -378,11 +377,16 @@ const repState = computed(() => {
 
 const repStateLabel = computed(() => {
   switch (repState.value) {
-    case 'approved': return 'Approved'
-    case 'pending': return 'Pending'
-    case 'denied': return 'Denied'
-    case 'admin': return 'Admin'
-    default: return 'Not requested'
+    case 'approved':
+      return 'Approved'
+    case 'pending':
+      return 'Pending'
+    case 'denied':
+      return 'Denied'
+    case 'admin':
+      return 'Admin'
+    default:
+      return 'Not requested'
   }
 })
 
@@ -391,7 +395,8 @@ const repHint = computed(() => {
     return 'Uploads are currently disabled for your account. Contact an admin.'
   }
   if (repState.value === 'pending') return 'Your request is under review.'
-  if (repState.value === 'denied') return repInfo.value?.reason || repInfo.value?.message || 'Your request was denied. You can update and resubmit.'
+  if (repState.value === 'denied')
+    return repInfo.value?.reason || repInfo.value?.message || 'Your request was denied. You can update and resubmit.'
   if (repState.value === 'approved') return 'You can upload for your assigned courses.'
   return 'Apply to become a course rep to upload past questions and materials.'
 })
@@ -432,6 +437,22 @@ function goUploads() {
   router.push('/uploads')
 }
 
+// --- Small UI-only helpers ---
+const quickLinks = [
+  { id: 'profile-top', label: 'Overview' },
+  { id: 'study-goal', label: 'Goal & badges' },
+  { id: 'uploads-reps', label: 'Uploads' },
+  { id: 'study-settings', label: 'Study settings' },
+  { id: 'account', label: 'Account' },
+]
+
+const showAllBase = ref(false)
+const baseVisible = computed(() => {
+  const list = baseCourses.value || []
+  if (showAllBase.value) return list
+  return list.slice(0, 6)
+})
+
 // --- Lifecycle ---
 onMounted(async () => {
   await catalog.bootstrap()
@@ -448,26 +469,28 @@ onMounted(async () => {
 
 <template>
   <div class="page">
-    <!-- Sticky save bar -->
-    <div v-if="isDirty" class="fixed inset-x-0 bottom-3 z-40 px-3">
+    <!-- Sticky save bar (compact + mobile-friendly) -->
+    <div
+      v-if="isDirty"
+      class="fixed inset-x-0 bottom-3 z-40 px-3 pb-[env(safe-area-inset-bottom)]"
+      aria-live="polite"
+    >
       <div class="container-app">
         <div class="card card-pad border border-border/70 bg-surface/80 backdrop-blur">
-          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="badge">Unsaved</span>
-                <div class="text-sm font-semibold">You have changes</div>
-              </div>
+              <div class="text-sm font-semibold">Unsaved changes</div>
               <div class="text-xs text-text-3 mt-1">
-                Sections: <b>{{ dirtySections.join(', ') }}</b> — save to keep them after reload.
+                Changed: <b>{{ dirtySections.join(', ') }}</b>. Save to keep them after reload.
               </div>
             </div>
+
             <div class="flex flex-col sm:flex-row gap-2">
               <AppButton :disabled="busy" class="btn-primary" @click="save">
                 <span v-if="!busy">{{ saveCtaLabel }}</span>
                 <span v-else>Saving…</span>
               </AppButton>
-              <button class="btn btn-ghost" :disabled="busy" @click="resetToSaved">Discard</button>
+              <button class="btn btn-ghost" type="button" :disabled="busy" @click="resetToSaved">Discard</button>
               <button class="btn btn-ghost" type="button" @click="scrollToId('profile-top')">Top</button>
             </div>
           </div>
@@ -475,72 +498,82 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- PROFILE HERO -->
+    <!-- Header / Overview -->
     <AppCard id="profile-top" class="relative overflow-hidden">
-      <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/14 via-transparent to-transparent" />
-
+      <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/12 via-transparent to-transparent" />
       <div class="relative">
-        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-          <div class="min-w-0">
+        <div class="row">
+          <div>
             <div class="kicker">Account</div>
-
-            <div class="mt-2 flex items-center gap-3">
-              <div class="h-12 w-12 rounded-2xl bg-accent/15 text-accent flex items-center justify-center font-extrabold">
-                {{ initials }}
-              </div>
-              <div class="min-w-0">
-                <div class="h1 leading-tight truncate">{{ displayName }}</div>
-                <div class="text-sm text-text-3 mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                  <span class="chip">Role: {{ role }}</span>
-                  <span v-if="email" class="chip">{{ email }}</span>
-                  <span class="chip">Level: {{ level }}</span>
-                </div>
-              </div>
-            </div>
-
-            <p class="sub mt-3 max-w-[70ch]">
-              Manage your study setup, carryover courses, and uploader access — all from one place.
+            <div class="h1 mt-1">Profile</div>
+            <p class="sub mt-2 max-w-[70ch]">
+              Update your name, study settings, and course selections. Your uploads access also depends on these settings.
             </p>
+          </div>
 
-            <!-- Quick nav -->
-            <div class="mt-4 flex flex-wrap gap-2">
-              <button type="button" class="btn btn-ghost btn-sm" @click="scrollToId('study-goal')">Goal & badges</button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="scrollToId('uploads-reps')">Uploads & reps</button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="scrollToId('study-settings')">Study settings</button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="scrollToId('account')">Account</button>
+          <div class="flex flex-col gap-2 sm:items-end">
+            <AppButton class="w-full sm:w-auto btn-primary" :disabled="busy || !isDirty" @click="save">
+              <span v-if="busy">Saving…</span>
+              <span v-else>{{ isDirty ? saveCtaLabel : 'All changes saved' }}</span>
+            </AppButton>
+            <button class="btn btn-ghost w-full sm:w-auto" type="button" @click="logout">Log out</button>
+          </div>
+        </div>
+
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button
+            v-for="l in quickLinks"
+            :key="l.id"
+            type="button"
+            class="chip"
+            @click="scrollToId(l.id)"
+          >
+            {{ l.label }}
+          </button>
+        </div>
+
+        <div v-if="savedOk" class="alert alert-ok mt-4" role="status">
+          Saved successfully. Your study settings will stay after reload.
+        </div>
+        <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
+
+        <div class="divider my-5" />
+
+        <!-- Overview tiles -->
+        <div class="grid gap-3 sm:grid-cols-4">
+          <div class="tile">
+            <div class="text-xs text-text-3">Full name</div>
+            <div class="mt-1 font-semibold truncate">{{ fullName || '—' }}</div>
+            <div class="mt-2 text-xs text-text-3">
+              Role: <span class="badge">{{ role }}</span>
             </div>
           </div>
 
-          <div class="w-full lg:w-auto">
-            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-              <div class="card card-pad border border-border/70 bg-surface/60">
-                <div class="text-xs text-text-3">Today</div>
-                <div class="mt-1 text-2xl font-extrabold">{{ todayAnswered }}</div>
-                <div class="text-xs text-text-3 mt-1">answered • goal {{ goalNow }}</div>
-                <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" :aria-valuenow="goalPct" aria-valuemin="0" aria-valuemax="100">
-                  <div class="h-full bg-accent transition-all duration-200" :style="{ width: goalPct + '%' }" />
-                </div>
-              </div>
+          <div class="tile">
+            <div class="text-xs text-text-3">Faculty</div>
+            <div class="mt-1 font-semibold truncate">{{ displayFaculty }}</div>
+            <div class="mt-2 text-xs text-text-3">Department: <b class="text-text-2">{{ displayDepartment }}</b></div>
+          </div>
 
-              <div class="card card-pad border border-border/70 bg-surface/60">
-                <div class="text-xs text-text-3">Progress</div>
-                <div class="mt-1 text-2xl font-extrabold">Lvl {{ data.progress.level }}</div>
-                <div class="text-xs text-text-3 mt-1">{{ data.progress.xp }} XP • next in {{ nextLevelIn }} XP</div>
-              </div>
-            </div>
+          <div class="tile">
+            <div class="text-xs text-text-3">Level</div>
+            <div class="mt-1 font-semibold">{{ displayLevel }}</div>
+            <div class="mt-2 text-xs text-text-3">Courses: <b class="text-text-2">{{ selectedCourseIds.length }}</b></div>
+          </div>
 
-            <div class="mt-2">
-              <AppButton class="w-full btn-primary" :disabled="busy" @click="save">
-                <span v-if="!busy">{{ saveCtaLabel }}</span>
-                <span v-else>Saving…</span>
-              </AppButton>
-              <button class="btn btn-ghost w-full mt-2" @click="logout">Log out</button>
+          <div class="tile">
+            <div class="text-xs text-text-3">Uploader access</div>
+            <div class="mt-1 font-semibold flex items-center gap-2">
+              <span class="badge" :title="repState">{{ repStateLabel }}</span>
+              <span v-if="repBusy" class="text-xs text-text-3">Refreshing…</span>
             </div>
+            <div class="mt-2 text-xs text-text-3 truncate">{{ repHint }}</div>
           </div>
         </div>
 
         <div class="divider my-5" />
 
+        <!-- Identity -->
         <div class="grid gap-4 sm:grid-cols-2">
           <div>
             <label class="label" for="pname">Full name</label>
@@ -556,19 +589,14 @@ onMounted(async () => {
 
           <div class="card card-pad border border-border/70 bg-surface/60">
             <div class="text-sm font-semibold">What “Save” includes</div>
-            <div class="mt-2 flex flex-wrap gap-2">
+            <p class="sub mt-1">One button updates everything below.</p>
+            <div class="mt-3 flex flex-wrap gap-2">
               <span class="chip">Name</span>
               <span class="chip">Faculty / Department / Level</span>
               <span class="chip">Courses (auto + extras)</span>
             </div>
-            <p class="help mt-2">Tip: the sticky bar appears when you change anything important.</p>
           </div>
         </div>
-
-        <div v-if="savedOk" class="alert alert-ok mt-4" role="status">
-          Saved successfully. Your study settings will stay after reload.
-        </div>
-        <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
       </div>
     </AppCard>
 
@@ -577,31 +605,31 @@ onMounted(async () => {
       <div class="row">
         <div>
           <div class="h2">Study goal & achievements</div>
-          <p class="sub mt-1">Set a daily target and track your badges + level.</p>
+          <p class="sub mt-1">Set a daily question goal and track your level and badges.</p>
         </div>
+        <button class="btn btn-ghost" type="button" @click="scrollToId('study-settings')">Edit study settings</button>
       </div>
 
       <div class="divider my-4" />
 
-      <div class="grid gap-4 lg:grid-cols-3">
+      <div class="grid gap-4 sm:grid-cols-3">
         <div class="card card-pad border border-border/70 bg-surface/60">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="text-sm font-semibold">Daily goal</div>
-              <p class="sub mt-1">How many questions you aim to answer per day.</p>
-            </div>
-            <span class="badge">{{ goalPct }}%</span>
-          </div>
+          <div class="text-sm font-semibold">Daily goal</div>
+          <p class="sub mt-1">How many questions you want to answer today.</p>
 
-          <div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
+          <div class="mt-3 flex flex-wrap items-center gap-2">
             <input
               v-model.number="dailyGoal"
               type="number"
               min="5"
               max="200"
-              class="input w-full sm:w-32"
+              class="input w-32"
+              :disabled="goalBusy"
             />
-            <AppButton class="w-full sm:w-auto" size="sm" @click="saveDailyGoal">Save goal</AppButton>
+            <AppButton size="sm" :disabled="goalBusy" @click="saveDailyGoal">
+              <span v-if="goalBusy">Saving…</span>
+              <span v-else>Save</span>
+            </AppButton>
           </div>
 
           <div class="mt-3 flex flex-wrap gap-2">
@@ -611,33 +639,26 @@ onMounted(async () => {
           </div>
 
           <div class="mt-4 text-xs text-text-3">
-            Today: <b>{{ data.progress.todayAnswered }}</b> / {{ data.progress.dailyGoal }}
+            Today: <b>{{ progressTodayAnswered }}</b> / {{ progressDailyGoal }}
           </div>
           <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
-            <div class="h-full bg-accent transition-all duration-200" :style="{ width: goalPct + '%' }" />
+            <div
+              class="h-full bg-accent transition-all duration-200"
+              :style="{ width: progressPct + '%' }"
+            />
           </div>
         </div>
 
         <div class="card card-pad border border-border/70 bg-surface/60">
           <div class="text-sm font-semibold">Level</div>
-          <div class="mt-1 text-3xl font-extrabold">Level {{ data.progress.level }}</div>
-          <div class="mt-2 text-sm text-text-2">{{ data.progress.xp }} XP</div>
+          <div class="mt-1 text-2xl font-extrabold">Level {{ data.progress?.level || 1 }}</div>
+          <div class="mt-2 text-sm text-text-2">{{ data.progress?.xp || 0 }} XP</div>
           <div class="mt-2 text-xs text-text-3">Next level in {{ nextLevelIn }} XP</div>
-          <div class="divider my-4" />
-          <div class="text-xs text-text-3">
-            Keep your streak alive by answering at least <b>1</b> question daily.
-          </div>
         </div>
 
         <div class="card card-pad border border-border/70 bg-surface/60">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <div class="text-sm font-semibold">Badges</div>
-              <p class="sub mt-1">Small wins that keep you consistent.</p>
-            </div>
-            <span class="badge">{{ badges.length }}</span>
-          </div>
-
+          <div class="text-sm font-semibold">Badges</div>
+          <p class="sub mt-1">Small wins that keep you consistent.</p>
           <div class="mt-3 flex flex-wrap gap-2">
             <span v-if="!badges.length" class="text-xs text-text-3">No badges yet — start practising!</span>
             <span v-for="b in badges" :key="b.key" class="badge" :title="b.key">{{ b.label }}</span>
@@ -654,7 +675,7 @@ onMounted(async () => {
           <p class="sub mt-1">Set department → save → request access → get approved → upload.</p>
         </div>
         <div class="flex gap-2">
-          <button class="btn btn-ghost" :disabled="repBusy" @click="fetchRepStatus">
+          <button class="btn btn-ghost" type="button" :disabled="repBusy" @click="fetchRepStatus">
             <span v-if="!repBusy">Refresh status</span>
             <span v-else>Refreshing…</span>
           </button>
@@ -663,7 +684,7 @@ onMounted(async () => {
 
       <div class="divider my-4" />
 
-      <div class="grid gap-3 lg:grid-cols-2">
+      <div class="grid gap-3 sm:grid-cols-2">
         <div class="card card-pad border border-border/70 bg-surface/60">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -766,17 +787,17 @@ onMounted(async () => {
           <div class="h2">Study settings</div>
           <p class="sub mt-1">These control what content you see by default.</p>
           <p class="help mt-2">
-            Important: changes here only persist after you click <b>{{ saveCtaLabel }}</b>.
+            Important: changes only persist after you click <b>{{ saveCtaLabel }}</b>.
           </p>
         </div>
 
         <div class="flex flex-col sm:flex-row gap-2 sm:items-start">
-          <AppButton class="w-full sm:w-auto btn-primary" :disabled="busy" @click="save">
-            <span v-if="!busy">Save study settings</span>
-            <span v-else>Saving…</span>
+          <AppButton class="w-full sm:w-auto btn-primary" :disabled="busy || !isDirty" @click="save">
+            <span v-if="busy">Saving…</span>
+            <span v-else>Save changes</span>
           </AppButton>
           <button class="btn btn-ghost w-full sm:w-auto" type="button" @click="scrollToId('profile-top')">
-            View full save
+            Back to overview
           </button>
         </div>
       </div>
@@ -789,7 +810,7 @@ onMounted(async () => {
 
       <div class="divider my-4" />
 
-      <div class="grid gap-4 lg:grid-cols-3">
+      <div class="grid gap-4 sm:grid-cols-3">
         <div>
           <label class="label" for="pfac">Faculty</label>
           <AppSelect id="pfac" v-model="facultyId" :options="facultyOptions" placeholder="Select faculty…" />
@@ -820,23 +841,34 @@ onMounted(async () => {
 
       <div class="mt-3">
         <p v-if="catalog.loading.deptCourses" class="sub">Loading…</p>
+
         <div v-else-if="!departmentId" class="alert alert-ok" role="status">
           Select a department and level to load your default courses.
         </div>
+
         <div v-else-if="baseCourses.length === 0" class="alert alert-danger" role="status">
           No courses found for this department/level yet. You can’t save these settings until default courses exist.
         </div>
 
-        <div v-else class="grid gap-2 lg:grid-cols-2">
-          <div v-for="c in baseCourses" :key="c.id" class="card card-pad text-left border border-border/70 bg-surface/60">
+        <div v-else class="grid gap-2 sm:grid-cols-2">
+          <div
+            v-for="c in baseVisible"
+            :key="c.id"
+            class="card card-pad text-left border border-border/70 bg-surface/60"
+          >
             <div class="flex items-center justify-between gap-2">
-              <div class="text-sm font-semibold">
-                {{ c.code }} — <span class="text-text-2">{{ c.title }}</span> <span class="text-text-3">({{ c.level }})</span>
-              </div>
-              <span class="chip">Included</span>
+              <div class="text-sm font-semibold">{{ c.code }} — {{ c.title }} ({{ c.level }})</div>
+              <span class="text-xs px-2 py-1 rounded-full bg-accent/10 text-accent">Included</span>
             </div>
             <div class="text-xs text-text-3 mt-1">Auto-added (locked)</div>
           </div>
+        </div>
+
+        <div v-if="baseCourses.length > 6" class="mt-3">
+          <button type="button" class="btn btn-ghost" @click="showAllBase = !showAllBase">
+            <span v-if="showAllBase">Show less</span>
+            <span v-else>Show all ({{ baseCourses.length }})</span>
+          </button>
         </div>
       </div>
 
@@ -869,7 +901,7 @@ onMounted(async () => {
               class="chip"
               @click="removeExtraCourse(c.id)"
               :disabled="busy"
-              title="Remove"
+              :title="`Remove ${c.code}`"
             >
               {{ c.code }} <span class="opacity-70">×</span>
             </button>
@@ -881,7 +913,7 @@ onMounted(async () => {
             {{ courseQuery ? 'No courses match your search.' : 'Search to add carryover courses.' }}
           </div>
 
-          <div v-else class="grid gap-2 lg:grid-cols-2 mt-2">
+          <div v-else class="grid gap-2 sm:grid-cols-2 mt-2">
             <button
               v-for="c in extraOptions"
               :key="c.id"
@@ -891,9 +923,7 @@ onMounted(async () => {
               @click="addExtraCourse(c.id)"
             >
               <div class="flex items-center justify-between gap-2">
-                <div class="text-sm font-semibold">
-                  {{ c.code }} — <span class="text-text-2">{{ c.title }}</span> <span class="text-text-3">({{ c.level }})</span>
-                </div>
+                <div class="text-sm font-semibold">{{ c.code }} — {{ c.title }} ({{ c.level }})</div>
                 <span class="badge">+</span>
               </div>
               <div class="text-xs text-text-3 mt-1">Tap to add</div>
@@ -916,8 +946,9 @@ onMounted(async () => {
       <div class="row">
         <div>
           <div class="h2">Account</div>
-          <p class="sub mt-1">Manage your session and app navigation.</p>
+          <p class="sub mt-1">Manage your session and app state.</p>
         </div>
+        <button class="btn btn-ghost" type="button" @click="scrollToId('profile-top')">Back to top</button>
       </div>
 
       <div class="divider my-4" />
