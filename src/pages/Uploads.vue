@@ -13,14 +13,12 @@ const catalog = useCatalogStore()
 
 const role = computed(() => auth.user?.role || 'student')
 const uploadsDisabled = computed(() => {
-  // optional backend field (may live on user or profile)
   const u = auth.user || {}
   const p = u.profile || {}
   return !!(u.uploadsDisabled ?? u.uploads_disabled ?? p.uploadsDisabled ?? p.uploads_disabled)
 })
 const meId = computed(() => String(auth.user?.id || ''))
 
-// Course reps: backend stores allowed course ids here
 const repCourseIds = computed(() => {
   const u = auth.user || {}
   const p = u.profile || {}
@@ -28,7 +26,7 @@ const repCourseIds = computed(() => {
   return Array.isArray(v) ? v.map(x => String(x)) : []
 })
 
-// Page state
+// ---- state ----
 const busy = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -39,21 +37,21 @@ const manageTab = ref('past') // 'past' | 'materials'
 
 // Course selection
 const courseId = ref('')
-const filterCourseId = ref('') // filter for manage section
+const filterCourseId = ref('')
 
 // Form state (Past Questions)
 const pqTitle = ref('')
 const pqSession = ref('')
 const pqSemester = ref('')
 const pqFile = ref(null)
-const pqFileKey = ref(0)
+const pqFileInput = ref(null) // <input type="file" ref>
 
 // Form state (Materials)
 const mTitle = ref('')
 const mType = ref('pdf')
 const mTags = ref('')
 const mFile = ref(null)
-const mFileKey = ref(0)
+const mFileInput = ref(null) // <input type="file" ref>
 
 // Lists
 const listBusy = ref(false)
@@ -62,7 +60,6 @@ const pastItems = ref([])
 const materialItems = ref([])
 
 // Inline edit model
-// { kind: 'past'|'materials', id, title, session, semester, type, tags }
 const edit = ref(null)
 
 const MAX_BYTES = 50 * 1024 * 1024
@@ -86,7 +83,6 @@ function qs(params) {
 }
 
 function normalizeItems(res) {
-  // supports {data:{items:[]}} or {items:[]} or [] or {data:[]}
   if (Array.isArray(res)) return res
   if (Array.isArray(res?.data?.items)) return res.data.items
   if (Array.isArray(res?.items)) return res.items
@@ -102,7 +98,6 @@ const courseOptions = computed(() => {
     label: `${c.code} — ${c.title} (${c.level})`,
   }))
   if (role.value === 'admin') return all
-  // course_rep: only allow assigned courses (string-safe compare)
   const allowed = new Set(repCourseIds.value)
   return all.filter(c => allowed.has(String(c.value)))
 })
@@ -119,36 +114,7 @@ function ensureValidCourseSelection() {
   if (!courseId.value || !allowed.has(String(courseId.value))) {
     courseId.value = String(courseOptions.value[0].value)
   }
-  // Keep manage filter convenient: if empty, follow selected course
   if (!filterCourseId.value) filterCourseId.value = courseId.value
-}
-
-/**
- * ✅ Critical fix:
- * Don’t change the file input :key inside its own change event.
- * That can cause Vue to patch a destroyed input and throw:
- * "Cannot set properties of null (setting 'value')"
- */
-function onPickFile(refVar, evt, { kind }) {
-  const inputEl = evt?.target
-  const f = inputEl?.files?.[0] || null
-
-  if (!f) {
-    refVar.value = null
-    return
-  }
-
-  // size guard
-  if (f.size > MAX_BYTES) {
-    error.value = `File too large (${bytesLabel(f.size)}). Max is ${bytesLabel(MAX_BYTES)}.`
-    refVar.value = null
-
-    // ✅ Safely reset the file input without re-mounting it
-    if (inputEl && typeof inputEl.value !== 'undefined') inputEl.value = ''
-    return
-  }
-
-  refVar.value = f
 }
 
 function resetUploadMessages() {
@@ -158,6 +124,42 @@ function resetUploadMessages() {
 
 function resetManageMessages() {
   listError.value = ''
+}
+
+function clearFileInput(kind) {
+  const el = kind === 'past' ? pqFileInput.value : mFileInput.value
+  if (el && typeof el.value !== 'undefined') el.value = ''
+}
+
+function onPickFile(kind, evt) {
+  const inputEl = evt?.target
+  const f = inputEl?.files?.[0] || null
+
+  const fileRef = kind === 'past' ? pqFile : mFile
+
+  if (!f) {
+    fileRef.value = null
+    return
+  }
+
+  if (f.size > MAX_BYTES) {
+    error.value = `File too large (${bytesLabel(f.size)}). Max is ${bytesLabel(MAX_BYTES)}.`
+    fileRef.value = null
+
+    // clear the actual input so user can re-select same file and re-trigger change
+    if (inputEl && typeof inputEl.value !== 'undefined') inputEl.value = ''
+    clearFileInput(kind)
+    return
+  }
+
+  fileRef.value = f
+}
+
+function onPickPast(e) {
+  onPickFile('past', e)
+}
+function onPickMaterial(e) {
+  onPickFile('materials', e)
 }
 
 // ---- Upload handlers ----
@@ -184,8 +186,8 @@ async function uploadPastQuestion() {
     pqSession.value = ''
     pqSemester.value = ''
     pqFile.value = null
-    pqFileKey.value++ // ✅ OK here (not inside the change event)
-    await loadMine() // refresh manage list
+    clearFileInput('past')
+    await loadMine()
   } catch (e) {
     error.value = e?.message || 'Upload failed.'
   } finally {
@@ -219,8 +221,8 @@ async function uploadMaterial() {
     mType.value = 'pdf'
     mTags.value = ''
     mFile.value = null
-    mFileKey.value++ // ✅ OK here (not inside the change event)
-    await loadMine() // refresh manage list
+    clearFileInput('materials')
+    await loadMine()
   } catch (e) {
     error.value = e?.message || 'Upload failed.'
   } finally {
@@ -228,16 +230,14 @@ async function uploadMaterial() {
   }
 }
 
-// ---- Manage uploads: list/edit/delete ----
+// ---- Manage uploads ----
 
 async function fetchMinePast() {
   const cid = filterCourseId.value || ''
-  // 1) preferred
   try {
     const res = await apiFetch(`/uploader/pastquestions${qs({ courseId: cid })}`)
     return normalizeItems(res)
-  } catch (e) {
-    // 2) fallback
+  } catch {
     const res2 = await apiFetch(`/pastquestions${qs({ mine: 1, courseId: cid })}`)
     return normalizeItems(res2)
   }
@@ -245,12 +245,10 @@ async function fetchMinePast() {
 
 async function fetchMineMaterials() {
   const cid = filterCourseId.value || ''
-  // 1) preferred
   try {
     const res = await apiFetch(`/uploader/materials${qs({ courseId: cid })}`)
     return normalizeItems(res)
-  } catch (e) {
-    // 2) fallback
+  } catch {
     const res2 = await apiFetch(`/materials${qs({ mine: 1, courseId: cid })}`)
     return normalizeItems(res2)
   }
@@ -340,11 +338,8 @@ async function saveEdit() {
     await loadMine()
   } catch (e) {
     const msg = e?.message || 'Update failed.'
-    if (/method not allowed|405/i.test(msg)) {
-      listError.value = 'Editing is not available yet (API PATCH endpoint not enabled).'
-    } else {
-      listError.value = msg
-    }
+    if (/method not allowed|405/i.test(msg)) listError.value = 'Editing is not available yet (API PATCH endpoint not enabled).'
+    else listError.value = msg
   }
 }
 
@@ -363,11 +358,8 @@ async function deleteItem(kind, item) {
     await loadMine()
   } catch (e) {
     const msg = e?.message || 'Delete failed.'
-    if (/forbidden|403/i.test(msg)) {
-      listError.value = 'You do not have permission to delete this item.'
-    } else {
-      listError.value = msg
-    }
+    if (/forbidden|403/i.test(msg)) listError.value = 'You do not have permission to delete this item.'
+    else listError.value = msg
   }
 }
 
@@ -376,7 +368,6 @@ function viewUrl(item) {
 }
 
 // ---- Lifecycle ----
-
 onMounted(async () => {
   await catalog.fetchCourses({})
   ensureValidCourseSelection()
@@ -412,7 +403,6 @@ watch(filterCourseId, () => {
 
       <div class="divider my-4" />
 
-      <!-- Access gating -->
       <div v-if="!canAccessUploads" class="alert alert-danger" role="alert">
         You don’t have upload access yet. Request course-rep access from your Profile page.
         <div class="mt-3">
@@ -484,11 +474,11 @@ watch(filterCourseId, () => {
           <div>
             <label class="label">File</label>
             <input
-              :key="pqFileKey"
+              ref="pqFileInput"
               type="file"
               class="input"
               accept=".pdf,.png,.jpg,.jpeg,.webp"
-              @change="onPickFile(pqFile, $event, { kind: 'past' })"
+              @change="onPickPast"
             />
             <p class="help">Max {{ bytesLabel(MAX_BYTES) }}. Accepts PDF / images.</p>
           </div>
@@ -528,11 +518,11 @@ watch(filterCourseId, () => {
           <div>
             <label class="label">File</label>
             <input
-              :key="mFileKey"
+              ref="mFileInput"
               type="file"
               class="input"
               accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
-              @change="onPickFile(mFile, $event, { kind: 'materials' })"
+              @change="onPickMaterial"
             />
             <p class="help">Max {{ bytesLabel(MAX_BYTES) }}.</p>
           </div>
@@ -733,6 +723,7 @@ watch(filterCourseId, () => {
                   <button class="btn btn-ghost w-full sm:w-auto" @click="edit = null">Cancel</button>
                 </div>
               </div>
+
             </div>
           </div>
         </div>
