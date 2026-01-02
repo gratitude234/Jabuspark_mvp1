@@ -123,8 +123,16 @@ function ensureValidCourseSelection() {
   if (!filterCourseId.value) filterCourseId.value = courseId.value
 }
 
+/**
+ * ✅ Critical fix:
+ * Don’t change the file input :key inside its own change event.
+ * That can cause Vue to patch a destroyed input and throw:
+ * "Cannot set properties of null (setting 'value')"
+ */
 function onPickFile(refVar, evt, { kind }) {
-  const f = evt?.target?.files?.[0] || null
+  const inputEl = evt?.target
+  const f = inputEl?.files?.[0] || null
+
   if (!f) {
     refVar.value = null
     return
@@ -134,9 +142,9 @@ function onPickFile(refVar, evt, { kind }) {
   if (f.size > MAX_BYTES) {
     error.value = `File too large (${bytesLabel(f.size)}). Max is ${bytesLabel(MAX_BYTES)}.`
     refVar.value = null
-    // reset the input (so re-selecting same file triggers change)
-    if (kind === 'past') pqFileKey.value++
-    if (kind === 'materials') mFileKey.value++
+
+    // ✅ Safely reset the file input without re-mounting it
+    if (inputEl && typeof inputEl.value !== 'undefined') inputEl.value = ''
     return
   }
 
@@ -176,7 +184,7 @@ async function uploadPastQuestion() {
     pqSession.value = ''
     pqSemester.value = ''
     pqFile.value = null
-    pqFileKey.value++
+    pqFileKey.value++ // ✅ OK here (not inside the change event)
     await loadMine() // refresh manage list
   } catch (e) {
     error.value = e?.message || 'Upload failed.'
@@ -211,7 +219,7 @@ async function uploadMaterial() {
     mType.value = 'pdf'
     mTags.value = ''
     mFile.value = null
-    mFileKey.value++
+    mFileKey.value++ // ✅ OK here (not inside the change event)
     await loadMine() // refresh manage list
   } catch (e) {
     error.value = e?.message || 'Upload failed.'
