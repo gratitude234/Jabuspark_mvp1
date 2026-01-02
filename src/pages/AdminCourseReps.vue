@@ -75,7 +75,11 @@ async function unassignCourse(repId, cid) {
 
 async function toggleUploads(repId, disabled) {
   try {
-    await apiFetch('/admin/course-reps/uploads-disabled', { method: 'POST', body: { userId: repId, disabled } })
+    // Backend accepts both {uploadsDisabled} and legacy {disabled}
+    await apiFetch('/admin/course-reps/uploads-disabled', {
+      method: 'POST',
+      body: { userId: repId, uploadsDisabled: !!disabled, disabled: !!disabled },
+    })
     await load()
   } catch (e) {
     error.value = e?.message || 'Failed to update rep.'
