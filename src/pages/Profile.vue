@@ -34,22 +34,6 @@ const busy = ref(false)
 const error = ref('')
 const savedOk = ref(false)
 
-// ---- helper ----
-const initials = computed(() => {
-  const n = (fullName.value || '').trim()
-  if (!n) return 'U'
-  const parts = n.split(/\s+/).filter(Boolean)
-  const a = parts[0]?.[0] || 'U'
-  const b = parts[1]?.[0] || ''
-  return (a + b).toUpperCase()
-})
-
-function scrollToId(id) {
-  const el = document.getElementById(id)
-  if (!el) return
-  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
 // --- Study goal & achievements ---
 const dailyGoal = ref(Number(data.progress?.dailyGoal || 10))
 
@@ -150,10 +134,10 @@ const extraOptions = computed(() => {
   const selected = new Set(selectedCourseIds.value)
 
   let list = (catalog.courses || []).filter((c) => !base.has(c.id) && !selected.has(c.id))
-  if (!q) return list.slice(0, 12)
+  if (!q) return list.slice(0, 20)
 
   list = list.filter((c) => (`${c.code} ${c.title}`.toLowerCase().includes(q)))
-  return list.slice(0, 12)
+  return list.slice(0, 20)
 })
 
 function addExtraCourse(id) {
@@ -230,7 +214,33 @@ const dirtySections = computed(() => {
 })
 
 const isDirty = computed(() => dirtySections.value.length > 0)
-const saveCtaLabel = computed(() => 'Save changes')
+
+const saveCtaLabel = computed(() => 'Save profile & study settings')
+
+function scrollToId(id) {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+async function resetToSaved() {
+  const u = user.value || {}
+  const p = profile.value || {}
+
+  fullName.value = u.fullName || ''
+  facultyId.value = p.facultyId || null
+  departmentId.value = p.departmentId || null
+  level.value = p.level || 200
+  pickedCourseIds.value = [...(p.courseIds || [])]
+  courseQuery.value = ''
+  savedOk.value = false
+  error.value = ''
+
+  // best-effort refresh for consistency after reset
+  if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
+  await refreshDeptCourses()
+  prevBaseIds.value = [...baseCourseIds.value]
+}
 
 // --- Save profile (also saves study settings + courses) ---
 async function save() {
@@ -251,9 +261,12 @@ async function save() {
       facultyId: facultyId.value,
       departmentId: departmentId.value,
       level: Number(level.value),
+      // Store base + extras (server will also enforce base)
       courseIds: selectedCourseIds.value,
     })
     savedOk.value = true
+
+    // After saving, refresh rep status so request scope is consistent
     await fetchRepStatus()
   } catch (e) {
     error.value = e?.message || 'Failed to save changes.'
@@ -267,25 +280,7 @@ async function logout() {
   router.push('/auth/login')
 }
 
-async function resetToSaved() {
-  const u = user.value || {}
-  const p = profile.value || {}
-
-  fullName.value = u.fullName || ''
-  facultyId.value = p.facultyId || null
-  departmentId.value = p.departmentId || null
-  level.value = p.level || 200
-  pickedCourseIds.value = [...(p.courseIds || [])]
-  courseQuery.value = ''
-  savedOk.value = false
-  error.value = ''
-
-  if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
-  await refreshDeptCourses()
-  prevBaseIds.value = [...baseCourseIds.value]
-}
-
-// --- Upload / course rep workflow ---
+// --- Upload / course rep workflow (perfected) ---
 const hasStudySetup = computed(() => {
   const n = (fullName.value || '').trim()
   return !!n && !!facultyId.value && !!departmentId.value && !!level.value
@@ -305,7 +300,13 @@ const isProfileDirty = computed(() => {
 const uploadsDisabled = computed(() => {
   const u = user.value || {}
   const p = profile.value || {}
-  return Boolean(u.uploadsDisabled ?? u.uploads_disabled ?? p.uploadsDisabled ?? p.uploads_disabled ?? false)
+  return Boolean(
+    u.uploadsDisabled ??
+      u.uploads_disabled ??
+      p.uploadsDisabled ??
+      p.uploads_disabled ??
+      false
+  )
 })
 
 const repCourseIds = computed(() => {
@@ -436,6 +437,15 @@ function goUploads() {
   router.push('/uploads')
 }
 
+// --- Small UI-only helpers ---
+const quickLinks = [
+  { id: 'profile-top', label: 'Overview' },
+  { id: 'study-goal', label: 'Goal & badges' },
+  { id: 'uploads-reps', label: 'Uploads' },
+  { id: 'study-settings', label: 'Study settings' },
+  { id: 'account', label: 'Account' },
+]
+
 const showAllBase = ref(false)
 const baseVisible = computed(() => {
   const list = baseCourses.value || []
@@ -443,6 +453,7 @@ const baseVisible = computed(() => {
   return list.slice(0, 6)
 })
 
+// --- Lifecycle ---
 onMounted(async () => {
   await catalog.bootstrap()
   await catalog.fetchCourses()
@@ -458,22 +469,26 @@ onMounted(async () => {
 
 <template>
   <div class="page">
-    <!-- Sticky Save Bar (only when dirty) -->
-    <div v-if="isDirty" class="fixed inset-x-0 bottom-3 z-40 px-3">
+    <!-- Sticky save bar (compact + mobile-friendly) -->
+    <div
+      v-if="isDirty"
+      class="fixed inset-x-0 bottom-3 z-40 px-3 pb-[env(safe-area-inset-bottom)]"
+      aria-live="polite"
+    >
       <div class="container-app">
-        <div class="card p-3 sm:p-4">
+        <div class="card card-pad border border-border/70 bg-surface/80 backdrop-blur">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="min-w-0">
               <div class="text-sm font-semibold">Unsaved changes</div>
               <div class="text-xs text-text-3 mt-1">
-                Updated: <b>{{ dirtySections.join(', ') }}</b>
+                Changed: <b>{{ dirtySections.join(', ') }}</b>. Save to keep them after reload.
               </div>
             </div>
 
             <div class="flex flex-col sm:flex-row gap-2">
-              <AppButton class="btn-primary" :disabled="busy" @click="save">
-                <span v-if="busy">Saving…</span>
-                <span v-else>{{ saveCtaLabel }}</span>
+              <AppButton :disabled="busy" class="btn-primary" @click="save">
+                <span v-if="!busy">{{ saveCtaLabel }}</span>
+                <span v-else>Saving…</span>
               </AppButton>
               <button class="btn btn-ghost" type="button" :disabled="busy" @click="resetToSaved">Discard</button>
               <button class="btn btn-ghost" type="button" @click="scrollToId('profile-top')">Top</button>
@@ -483,320 +498,228 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Layout: main + sidebar (desktop), stacked (mobile) -->
-    <div class="container-app grid gap-4 lg:grid-cols-12">
-      <!-- MAIN -->
-      <div class="lg:col-span-8 space-y-4">
-        <!-- HEADER -->
-        <AppCard id="profile-top">
-          <div class="row">
-            <div>
-              <div class="kicker">Account</div>
-              <div class="h1 mt-1">Profile</div>
-              <p class="sub mt-2 max-w-[70ch]">
-                Update your name and study settings. Upload access is tied to your department setup.
-              </p>
-            </div>
-
-            <div class="flex flex-col items-stretch sm:items-end gap-2">
-              <div class="flex items-center justify-end gap-2">
-                <span class="badge" v-if="!isDirty">All changes saved</span>
-                <span class="badge" v-else>Not saved</span>
-                <span class="badge">{{ role }}</span>
-              </div>
-
-              <div class="flex gap-2 justify-end">
-                <button class="btn btn-ghost" type="button" @click="logout">Log out</button>
-                <AppButton class="btn-primary" :disabled="busy || !isDirty" @click="save">
-                  <span v-if="busy">Saving…</span>
-                  <span v-else>Save</span>
-                </AppButton>
-              </div>
-            </div>
+    <!-- Header / Overview -->
+    <AppCard id="profile-top" class="relative overflow-hidden">
+      <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/12 via-transparent to-transparent" />
+      <div class="relative">
+        <div class="row">
+          <div>
+            <div class="kicker">Account</div>
+            <div class="h1 mt-1">Profile</div>
+            <p class="sub mt-2 max-w-[70ch]">
+              Update your name, study settings, and course selections. Your uploads access also depends on these settings.
+            </p>
           </div>
 
-          <div v-if="savedOk" class="alert alert-ok mt-4" role="status">Saved successfully.</div>
-          <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
+          <div class="flex flex-col gap-2 sm:items-end">
+            <AppButton class="w-full sm:w-auto btn-primary" :disabled="busy || !isDirty" @click="save">
+              <span v-if="busy">Saving…</span>
+              <span v-else>{{ isDirty ? saveCtaLabel : 'All changes saved' }}</span>
+            </AppButton>
+            <button class="btn btn-ghost w-full sm:w-auto" type="button" @click="logout">Log out</button>
+          </div>
+        </div>
 
-          <div class="divider my-5" />
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button
+            v-for="l in quickLinks"
+            :key="l.id"
+            type="button"
+            class="chip"
+            @click="scrollToId(l.id)"
+          >
+            {{ l.label }}
+          </button>
+        </div>
 
-          <!-- Identity row -->
-          <div class="grid gap-4 sm:grid-cols-[auto,1fr] items-start">
-            <div class="tile flex items-center justify-center w-16 h-16 rounded-full text-lg font-bold">
-              {{ initials }}
-            </div>
+        <div v-if="savedOk" class="alert alert-ok mt-4" role="status">
+          Saved successfully. Your study settings will stay after reload.
+        </div>
+        <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
 
-            <div class="space-y-3">
-              <div>
-                <label class="label" for="pname">Full name</label>
-                <input id="pname" v-model="fullName" class="input" autocomplete="name" placeholder="Your full name" />
-                <p class="help">Used across your dashboard and uploads requests.</p>
-              </div>
+        <div class="divider my-5" />
 
-              <div class="grid gap-3 sm:grid-cols-3">
-                <div class="tile">
-                  <div class="text-xs text-text-3">Faculty</div>
-                  <div class="mt-1 font-semibold truncate">{{ displayFaculty }}</div>
-                </div>
-                <div class="tile">
-                  <div class="text-xs text-text-3">Department</div>
-                  <div class="mt-1 font-semibold truncate">{{ displayDepartment }}</div>
-                </div>
-                <div class="tile">
-                  <div class="text-xs text-text-3">Level</div>
-                  <div class="mt-1 font-semibold truncate">{{ displayLevel }}</div>
-                </div>
-              </div>
+        <!-- Overview tiles -->
+        <div class="grid gap-3 sm:grid-cols-4">
+          <div class="tile">
+            <div class="text-xs text-text-3">Full name</div>
+            <div class="mt-1 font-semibold truncate">{{ fullName || '—' }}</div>
+            <div class="mt-2 text-xs text-text-3">
+              Role: <span class="badge">{{ role }}</span>
             </div>
           </div>
-        </AppCard>
-
-        <!-- GOAL + BADGES (compact row) -->
-        <AppCard id="study-goal">
-          <div class="row">
-            <div>
-              <div class="h2">Study goal</div>
-              <p class="sub mt-1">Set a daily target and track your progress.</p>
-            </div>
-            <button class="btn btn-ghost" type="button" @click="scrollToId('study-settings')">Edit study settings</button>
-          </div>
-
-          <div class="divider my-4" />
-
-          <div class="grid gap-3 md:grid-cols-3">
-            <div class="tile">
-              <div class="text-sm font-semibold">Daily goal</div>
-              <p class="help mt-1">Questions to answer today.</p>
-
-              <div class="mt-3 flex items-center gap-2">
-                <input v-model.number="dailyGoal" type="number" min="5" max="200" class="input w-28" :disabled="goalBusy" />
-                <AppButton size="sm" :disabled="goalBusy" @click="saveDailyGoal">
-                  <span v-if="goalBusy">Saving…</span>
-                  <span v-else>Save</span>
-                </AppButton>
-              </div>
-
-              <div class="mt-3 flex flex-wrap gap-2">
-                <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(10)">10</button>
-                <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(20)">20</button>
-                <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(50)">50</button>
-              </div>
-
-              <div class="mt-3 text-xs text-text-3">
-                Today: <b>{{ progressTodayAnswered }}</b> / {{ progressDailyGoal }}
-              </div>
-              <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
-                <div class="h-full bg-accent" :style="{ width: progressPct + '%' }" />
-              </div>
-            </div>
-
-            <div class="tile">
-              <div class="text-sm font-semibold">Level</div>
-              <div class="mt-2 text-2xl font-extrabold">Level {{ data.progress?.level || 1 }}</div>
-              <div class="mt-2 text-sm text-text-2">{{ data.progress?.xp || 0 }} XP</div>
-              <div class="mt-1 text-xs text-text-3">Next level in {{ nextLevelIn }} XP</div>
-            </div>
-
-            <div class="tile">
-              <div class="text-sm font-semibold">Badges</div>
-              <p class="help mt-1">Consistency wins.</p>
-              <div class="mt-3 flex flex-wrap gap-2">
-                <span v-if="!badges.length" class="text-xs text-text-3">No badges yet — start practising!</span>
-                <span v-for="b in badges" :key="b.key" class="badge">{{ b.label }}</span>
-              </div>
-            </div>
-          </div>
-        </AppCard>
-
-        <!-- STUDY SETTINGS (tight + cleaner) -->
-        <AppCard id="study-settings">
-          <div class="row">
-            <div>
-              <div class="h2">Study settings</div>
-              <p class="sub mt-1">This controls what content you see by default.</p>
-              <p class="help mt-2">Auto courses are locked; extras are optional.</p>
-            </div>
-
-            <div class="flex gap-2">
-              <AppButton class="btn-primary" :disabled="busy || !isDirty" @click="save">
-                <span v-if="busy">Saving…</span>
-                <span v-else>Save</span>
-              </AppButton>
-              <button class="btn btn-ghost" type="button" @click="scrollToId('profile-top')">Back</button>
-            </div>
-          </div>
-
-          <div class="divider my-4" />
-
-          <div class="grid gap-4 md:grid-cols-3">
-            <div>
-              <label class="label" for="pfac">Faculty</label>
-              <AppSelect id="pfac" v-model="facultyId" :options="facultyOptions" placeholder="Select faculty…" />
-            </div>
-            <div>
-              <label class="label" for="pdept">Department</label>
-              <AppSelect id="pdept" v-model="departmentId" :options="departmentOptions" placeholder="Select department…" />
-            </div>
-            <div>
-              <label class="label" for="plevel">Level</label>
-              <AppSelect id="plevel" v-model="level" :options="levelOptions" placeholder="Select level…" />
-            </div>
-          </div>
-
-          <div class="divider my-6" />
-
-          <div class="grid gap-4 lg:grid-cols-2">
-            <!-- Auto courses -->
-            <div>
-              <div class="row">
-                <div>
-                  <div class="h2">Department courses</div>
-                  <p class="sub mt-1">Auto-added and locked.</p>
-                </div>
-                <span class="badge">{{ baseCourseIds.length }}</span>
-              </div>
-
-              <div class="mt-3">
-                <div v-if="!departmentId" class="alert alert-ok">Select department + level to load courses.</div>
-                <div v-else-if="baseCourses.length === 0" class="alert alert-danger">No courses found for this department/level yet.</div>
-
-                <div v-else class="grid gap-2 sm:grid-cols-2">
-                  <div v-for="c in baseVisible" :key="c.id" class="tile">
-                    <div class="flex items-start justify-between gap-2">
-                      <div class="min-w-0">
-                        <div class="text-sm font-semibold truncate">{{ c.code }}</div>
-                        <div class="text-xs text-text-3 truncate">{{ c.title }}</div>
-                      </div>
-                      <span class="badge">Included</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="baseCourses.length > 6" class="mt-3">
-                  <button type="button" class="btn btn-ghost" @click="showAllBase = !showAllBase">
-                    <span v-if="showAllBase">Show less</span>
-                    <span v-else>Show all ({{ baseCourses.length }})</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Extra courses -->
-            <div>
-              <div class="row">
-                <div>
-                  <div class="h2">Carryovers / extras</div>
-                  <p class="sub mt-1">Add more courses you want access to.</p>
-                </div>
-                <span class="badge">{{ selectedExtras.length }}</span>
-              </div>
-
-              <div class="mt-3">
-                <input v-model="courseQuery" class="input w-full" type="text" placeholder="Search course code or title…" :disabled="busy" />
-
-                <div v-if="selectedExtras.length" class="mt-3">
-                  <div class="text-xs text-text-3 mb-2">Selected (tap to remove)</div>
-                  <div class="flex flex-wrap gap-2">
-                    <button
-                      v-for="c in selectedExtras"
-                      :key="c.id"
-                      type="button"
-                      class="chip"
-                      @click="removeExtraCourse(c.id)"
-                      :disabled="busy"
-                    >
-                      {{ c.code }} <span class="opacity-70">×</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="mt-4">
-                  <div v-if="extraOptions.length === 0" class="help">
-                    {{ courseQuery ? 'No courses match your search.' : 'Search to add carryover courses.' }}
-                  </div>
-
-                  <div v-else class="grid gap-2 sm:grid-cols-2 mt-2">
-                    <button
-                      v-for="c in extraOptions"
-                      :key="c.id"
-                      type="button"
-                      class="tile text-left"
-                      :disabled="busy"
-                      @click="addExtraCourse(c.id)"
-                    >
-                      <div class="flex items-start justify-between gap-2">
-                        <div class="min-w-0">
-                          <div class="text-sm font-semibold truncate">{{ c.code }}</div>
-                          <div class="text-xs text-text-3 truncate">{{ c.title }}</div>
-                        </div>
-                        <span class="badge">+</span>
-                      </div>
-                      <div class="text-xs text-text-3 mt-2">Tap to add</div>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="mt-4 text-xs text-text-3">
-                  Total courses: <b>{{ selectedCourseIds.length }}</b>
-                </div>
-              </div>
-            </div>
-          </div>
-        </AppCard>
-
-        <!-- ACCOUNT -->
-        <AppCard id="account">
-          <div class="row">
-            <div>
-              <div class="h2">Account</div>
-              <p class="sub mt-1">Quick links.</p>
-            </div>
-            <button class="btn btn-ghost" type="button" @click="scrollToId('profile-top')">Back to top</button>
-          </div>
-
-          <div class="divider my-4" />
-
-          <div class="flex flex-wrap gap-2">
-            <RouterLink to="/dashboard" class="btn btn-ghost">Dashboard</RouterLink>
-            <RouterLink to="/saved" class="btn btn-ghost">Saved</RouterLink>
-          </div>
-        </AppCard>
-      </div>
-
-      <!-- SIDEBAR -->
-      <div class="lg:col-span-4 space-y-4">
-        <!-- Overview / Actions -->
-        <AppCard>
-          <div class="h2">Quick actions</div>
-          <p class="sub mt-1">Your uploader status and shortcuts.</p>
-
-          <div class="divider my-4" />
 
           <div class="tile">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="text-xs text-text-3">Uploader access</div>
-                <div class="mt-1 font-semibold">{{ repStateLabel }}</div>
-                <div class="mt-1 text-xs text-text-3 truncate">{{ repHint }}</div>
-              </div>
-              <span class="badge">{{ role === 'admin' ? 'Admin' : repStateLabel }}</span>
-            </div>
-
-            <div v-if="repState === 'approved' && repCourseIds.length" class="mt-3">
-              <div class="text-xs text-text-3 mb-2">Assigned courses</div>
-              <div class="flex flex-wrap gap-2">
-                <span v-for="(c, i) in repCoursesLabel.slice(0, 10)" :key="c + i" class="chip">{{ c }}</span>
-                <span v-if="repCoursesLabel.length > 10" class="chip">+{{ repCoursesLabel.length - 10 }} more</span>
-              </div>
-            </div>
+            <div class="text-xs text-text-3">Faculty</div>
+            <div class="mt-1 font-semibold truncate">{{ displayFaculty }}</div>
+            <div class="mt-2 text-xs text-text-3">Department: <b class="text-text-2">{{ displayDepartment }}</b></div>
           </div>
 
-          <div class="mt-3 flex flex-col gap-2">
-            <button class="btn btn-ghost" type="button" :disabled="repBusy" @click="fetchRepStatus">
-              <span v-if="repBusy">Refreshing…</span>
-              <span v-else>Refresh status</span>
-            </button>
+          <div class="tile">
+            <div class="text-xs text-text-3">Level</div>
+            <div class="mt-1 font-semibold">{{ displayLevel }}</div>
+            <div class="mt-2 text-xs text-text-3">Courses: <b class="text-text-2">{{ selectedCourseIds.length }}</b></div>
+          </div>
 
+          <div class="tile">
+            <div class="text-xs text-text-3">Uploader access</div>
+            <div class="mt-1 font-semibold flex items-center gap-2">
+              <span class="badge" :title="repState">{{ repStateLabel }}</span>
+              <span v-if="repBusy" class="text-xs text-text-3">Refreshing…</span>
+            </div>
+            <div class="mt-2 text-xs text-text-3 truncate">{{ repHint }}</div>
+          </div>
+        </div>
+
+        <div class="divider my-5" />
+
+        <!-- Identity -->
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="label" for="pname">Full name</label>
+            <input
+              id="pname"
+              v-model="fullName"
+              class="input"
+              autocomplete="name"
+              placeholder="Your full name"
+            />
+            <p class="help">Used for your dashboard greeting and account display.</p>
+          </div>
+
+          <div class="card card-pad border border-border/70 bg-surface/60">
+            <div class="text-sm font-semibold">What “Save” includes</div>
+            <p class="sub mt-1">One button updates everything below.</p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <span class="chip">Name</span>
+              <span class="chip">Faculty / Department / Level</span>
+              <span class="chip">Courses (auto + extras)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </AppCard>
+
+    <!-- Study goal -->
+    <AppCard id="study-goal">
+      <div class="row">
+        <div>
+          <div class="h2">Study goal & achievements</div>
+          <p class="sub mt-1">Set a daily question goal and track your level and badges.</p>
+        </div>
+        <button class="btn btn-ghost" type="button" @click="scrollToId('study-settings')">Edit study settings</button>
+      </div>
+
+      <div class="divider my-4" />
+
+      <div class="grid gap-4 sm:grid-cols-3">
+        <div class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Daily goal</div>
+          <p class="sub mt-1">How many questions you want to answer today.</p>
+
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              v-model.number="dailyGoal"
+              type="number"
+              min="5"
+              max="200"
+              class="input w-32"
+              :disabled="goalBusy"
+            />
+            <AppButton size="sm" :disabled="goalBusy" @click="saveDailyGoal">
+              <span v-if="goalBusy">Saving…</span>
+              <span v-else>Save</span>
+            </AppButton>
+          </div>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(10)">10</button>
+            <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(20)">20</button>
+            <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(50)">50</button>
+          </div>
+
+          <div class="mt-4 text-xs text-text-3">
+            Today: <b>{{ progressTodayAnswered }}</b> / {{ progressDailyGoal }}
+          </div>
+          <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+            <div
+              class="h-full bg-accent transition-all duration-200"
+              :style="{ width: progressPct + '%' }"
+            />
+          </div>
+        </div>
+
+        <div class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Level</div>
+          <div class="mt-1 text-2xl font-extrabold">Level {{ data.progress?.level || 1 }}</div>
+          <div class="mt-2 text-sm text-text-2">{{ data.progress?.xp || 0 }} XP</div>
+          <div class="mt-2 text-xs text-text-3">Next level in {{ nextLevelIn }} XP</div>
+        </div>
+
+        <div class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Badges</div>
+          <p class="sub mt-1">Small wins that keep you consistent.</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <span v-if="!badges.length" class="text-xs text-text-3">No badges yet — start practising!</span>
+            <span v-for="b in badges" :key="b.key" class="badge" :title="b.key">{{ b.label }}</span>
+          </div>
+        </div>
+      </div>
+    </AppCard>
+
+    <!-- Uploads & reps -->
+    <AppCard id="uploads-reps">
+      <div class="row">
+        <div>
+          <div class="h2">Uploads & course reps</div>
+          <p class="sub mt-1">Set department → save → request access → get approved → upload.</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost" type="button" :disabled="repBusy" @click="fetchRepStatus">
+            <span v-if="!repBusy">Refresh status</span>
+            <span v-else>Refreshing…</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="divider my-4" />
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div class="card card-pad border border-border/70 bg-surface/60">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-semibold">Uploader access</div>
+              <p class="sub mt-1">{{ repHint }}</p>
+
+              <div v-if="repState === 'approved' && repCourseIds.length" class="mt-3">
+                <div class="text-xs text-text-3 mb-2">Assigned courses</div>
+                <div class="flex flex-wrap gap-2">
+                  <span v-for="(c, i) in repCoursesLabel.slice(0, 10)" :key="c + i" class="chip">{{ c }}</span>
+                  <span v-if="repCoursesLabel.length > 10" class="chip">+{{ repCoursesLabel.length - 10 }} more</span>
+                </div>
+              </div>
+            </div>
+
+            <span class="badge" :title="repState">{{ repStateLabel }}</span>
+          </div>
+
+          <div v-if="role !== 'course_rep' && role !== 'admin' && !hasStudySetup" class="alert alert-danger mt-3" role="status">
+            Set your Full name, Faculty, Department and Level (then save) before requesting upload access.
+          </div>
+
+          <div v-else-if="isDirty" class="alert alert-ok mt-3" role="status">
+            You have unsaved changes — click <b>{{ saveCtaLabel }}</b> so your request uses the correct department/level.
+          </div>
+
+          <div v-else-if="baseCourseIds.length === 0 && departmentId" class="alert alert-danger mt-3" role="status">
+            No department courses found for this department/level yet.
+          </div>
+
+          <div v-if="uploadsDisabled && (role === 'course_rep' || role === 'admin')" class="alert alert-danger mt-3" role="status">
+            Uploads are disabled for your account.
+          </div>
+
+          <div class="mt-3 flex flex-wrap gap-2">
             <AppButton
               v-if="role === 'course_rep' || role === 'admin'"
               class="btn-primary"
@@ -806,36 +729,234 @@ onMounted(async () => {
               Open uploads
             </AppButton>
 
-            <button
-              v-else
-              class="btn btn-ghost"
-              type="button"
-              :disabled="repState === 'pending'"
-              @click="goRepRequest"
-            >
-              <span v-if="repState === 'pending'">Request pending</span>
-              <span v-else-if="repState === 'denied'">Edit & resubmit request</span>
+            <button v-else-if="repState === 'pending'" type="button" class="btn btn-ghost" disabled>
+              Request pending
+            </button>
+
+            <button v-else-if="role !== 'admin'" type="button" class="btn btn-ghost" @click="goRepRequest">
+              <span v-if="repState === 'denied'">Edit & resubmit request</span>
               <span v-else>Apply for upload access</span>
             </button>
 
-            <button class="btn btn-ghost" type="button" @click="scrollToId('study-settings')">Study settings</button>
+            <button v-if="role === 'course_rep'" type="button" class="btn btn-ghost" @click="goRepRequest">
+              Request more access
+            </button>
+
+            <button type="button" class="btn btn-ghost" @click="scrollToId('study-settings')">
+              Study settings
+            </button>
           </div>
 
-          <div v-if="repError" class="alert alert-danger mt-3">{{ repError }}</div>
-        </AppCard>
-
-        <!-- Mini nav -->
-        <AppCard>
-          <div class="h2">Jump to</div>
-          <div class="divider my-4" />
-          <div class="flex flex-wrap gap-2">
-            <button class="chip" type="button" @click="scrollToId('profile-top')">Profile</button>
-            <button class="chip" type="button" @click="scrollToId('study-goal')">Goal</button>
-            <button class="chip" type="button" @click="scrollToId('study-settings')">Settings</button>
-            <button class="chip" type="button" @click="scrollToId('account')">Account</button>
+          <div class="mt-4 text-xs text-text-3">
+            <div class="font-semibold text-text-2 mb-1">How it works</div>
+            <ul class="list-disc pl-4 space-y-1">
+              <li>Pick your department & level.</li>
+              <li>Click <b>{{ saveCtaLabel }}</b>.</li>
+              <li>Request uploader access and wait for approval.</li>
+            </ul>
           </div>
-        </AppCard>
+        </div>
+
+        <div v-if="role === 'admin'" class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Admin tools</div>
+          <p class="sub mt-1">Review requests, manage reps and audit upload changes.</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <RouterLink to="/admin/rep-requests" class="btn btn-ghost">Rep requests</RouterLink>
+            <RouterLink to="/admin/course-reps" class="btn btn-ghost">Manage reps</RouterLink>
+            <RouterLink to="/admin/upload-logs" class="btn btn-ghost">Upload audit log</RouterLink>
+            <RouterLink to="/admin/ai-tools" class="btn btn-ghost">AI tools</RouterLink>
+          </div>
+        </div>
+
+        <div v-else class="card card-pad border border-border/70 bg-surface/60">
+          <div class="text-sm font-semibold">Upload quality tips</div>
+          <p class="sub mt-1">
+            Always pick the correct course, session and semester. Wrong tagging leads to rejection.
+          </p>
+          <div class="mt-3 text-xs text-text-3">
+            If you’re a department rep, request access for department scope — not just one course.
+          </div>
+        </div>
       </div>
-    </div>
+    </AppCard>
+
+    <!-- Study settings -->
+    <AppCard id="study-settings">
+      <div class="row">
+        <div>
+          <div class="h2">Study settings</div>
+          <p class="sub mt-1">These control what content you see by default.</p>
+          <p class="help mt-2">
+            Important: changes only persist after you click <b>{{ saveCtaLabel }}</b>.
+          </p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2 sm:items-start">
+          <AppButton class="w-full sm:w-auto btn-primary" :disabled="busy || !isDirty" @click="save">
+            <span v-if="busy">Saving…</span>
+            <span v-else>Save changes</span>
+          </AppButton>
+          <button class="btn btn-ghost w-full sm:w-auto" type="button" @click="scrollToId('profile-top')">
+            Back to overview
+          </button>
+        </div>
+      </div>
+
+      <div v-if="isStudySettingsDirty || isCoursesDirty" class="alert alert-ok mt-4" role="status">
+        You have unsaved changes in
+        <b>{{ [isStudySettingsDirty ? 'Study settings' : null, isCoursesDirty ? 'Courses' : null].filter(Boolean).join(' & ') }}</b>.
+        Click <b>{{ saveCtaLabel }}</b> to keep them after reload.
+      </div>
+
+      <div class="divider my-4" />
+
+      <div class="grid gap-4 sm:grid-cols-3">
+        <div>
+          <label class="label" for="pfac">Faculty</label>
+          <AppSelect id="pfac" v-model="facultyId" :options="facultyOptions" placeholder="Select faculty…" />
+          <p v-if="catalog.loading.faculties" class="help">Loading…</p>
+        </div>
+
+        <div>
+          <label class="label" for="pdept">Department</label>
+          <AppSelect id="pdept" v-model="departmentId" :options="departmentOptions" placeholder="Select department…" />
+          <p v-if="catalog.loading.departments" class="help">Loading…</p>
+        </div>
+
+        <div>
+          <label class="label" for="plevel">Level</label>
+          <AppSelect id="plevel" v-model="level" :options="levelOptions" placeholder="Select level…" />
+        </div>
+      </div>
+
+      <div class="divider my-6" />
+
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="h2">Department courses (auto)</div>
+          <p class="sub mt-1">Auto-added based on your department and level.</p>
+        </div>
+        <span class="badge">{{ baseCourseIds.length }}</span>
+      </div>
+
+      <div class="mt-3">
+        <p v-if="catalog.loading.deptCourses" class="sub">Loading…</p>
+
+        <div v-else-if="!departmentId" class="alert alert-ok" role="status">
+          Select a department and level to load your default courses.
+        </div>
+
+        <div v-else-if="baseCourses.length === 0" class="alert alert-danger" role="status">
+          No courses found for this department/level yet. You can’t save these settings until default courses exist.
+        </div>
+
+        <div v-else class="grid gap-2 sm:grid-cols-2">
+          <div
+            v-for="c in baseVisible"
+            :key="c.id"
+            class="card card-pad text-left border border-border/70 bg-surface/60"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-sm font-semibold">{{ c.code }} — {{ c.title }} ({{ c.level }})</div>
+              <span class="text-xs px-2 py-1 rounded-full bg-accent/10 text-accent">Included</span>
+            </div>
+            <div class="text-xs text-text-3 mt-1">Auto-added (locked)</div>
+          </div>
+        </div>
+
+        <div v-if="baseCourses.length > 6" class="mt-3">
+          <button type="button" class="btn btn-ghost" @click="showAllBase = !showAllBase">
+            <span v-if="showAllBase">Show less</span>
+            <span v-else>Show all ({{ baseCourses.length }})</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="divider my-6" />
+
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="h2">Carryovers / extra courses</div>
+          <p class="sub mt-1">Add any other courses you want access to.</p>
+        </div>
+        <span class="badge">{{ selectedExtras.length }}</span>
+      </div>
+
+      <div class="mt-3">
+        <input
+          v-model="courseQuery"
+          class="input w-full"
+          type="text"
+          placeholder="Search course code or title…"
+          :disabled="busy"
+        />
+
+        <div v-if="selectedExtras.length" class="mt-3">
+          <div class="text-xs text-text-3 mb-2">Selected extras (tap to remove)</div>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="c in selectedExtras"
+              :key="c.id"
+              type="button"
+              class="chip"
+              @click="removeExtraCourse(c.id)"
+              :disabled="busy"
+              :title="`Remove ${c.code}`"
+            >
+              {{ c.code }} <span class="opacity-70">×</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <div v-if="extraOptions.length === 0" class="help">
+            {{ courseQuery ? 'No courses match your search.' : 'Search to add carryover courses.' }}
+          </div>
+
+          <div v-else class="grid gap-2 sm:grid-cols-2 mt-2">
+            <button
+              v-for="c in extraOptions"
+              :key="c.id"
+              type="button"
+              class="card card-press card-pad text-left"
+              :disabled="busy"
+              @click="addExtraCourse(c.id)"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-sm font-semibold">{{ c.code }} — {{ c.title }} ({{ c.level }})</div>
+                <span class="badge">+</span>
+              </div>
+              <div class="text-xs text-text-3 mt-1">Tap to add</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-4 text-xs text-text-3">
+          Total courses: <b>{{ selectedCourseIds.length }}</b> (department + extras)
+        </div>
+
+        <div v-if="isDirty" class="alert alert-ok mt-4" role="status">
+          Tip: Click <b>{{ saveCtaLabel }}</b> (top or sticky bar) to keep these changes after reload.
+        </div>
+      </div>
+    </AppCard>
+
+    <!-- Account -->
+    <AppCard id="account">
+      <div class="row">
+        <div>
+          <div class="h2">Account</div>
+          <p class="sub mt-1">Manage your session and app state.</p>
+        </div>
+        <button class="btn btn-ghost" type="button" @click="scrollToId('profile-top')">Back to top</button>
+      </div>
+
+      <div class="divider my-4" />
+
+      <div class="flex flex-col sm:flex-row gap-2">
+        <RouterLink to="/dashboard" class="btn btn-ghost">Back to dashboard</RouterLink>
+        <RouterLink to="/saved" class="btn btn-ghost">Saved</RouterLink>
+      </div>
+    </AppCard>
   </div>
 </template>
