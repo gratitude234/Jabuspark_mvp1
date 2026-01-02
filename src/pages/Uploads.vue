@@ -12,11 +12,19 @@ const auth = useAuthStore()
 const catalog = useCatalogStore()
 
 const role = computed(() => auth.user?.role || 'student')
+const uploadsDisabled = computed(() => {
+  // optional backend field (may live on user or profile)
+  const u = auth.user || {}
+  const p = u.profile || {}
+  return !!(u.uploadsDisabled ?? u.uploads_disabled ?? p.uploadsDisabled ?? p.uploads_disabled)
+})
 const meId = computed(() => String(auth.user?.id || ''))
 
 // Course reps: backend stores allowed course ids here
 const repCourseIds = computed(() => {
-  const v = auth.user?.profile?.repCourseIds || []
+  const u = auth.user || {}
+  const p = u.profile || {}
+  const v = p.repCourseIds ?? p.rep_course_ids ?? u.repCourseIds ?? u.rep_course_ids ?? []
   return Array.isArray(v) ? v.map(x => String(x)) : []
 })
 
@@ -86,7 +94,7 @@ function normalizeItems(res) {
   return []
 }
 
-const canAccessUploads = computed(() => role.value === 'admin' || role.value === 'course_rep')
+const canAccessUploads = computed(() => (role.value === 'admin' || role.value === 'course_rep') && !uploadsDisabled.value)
 
 const courseOptions = computed(() => {
   const all = (catalog.courses || []).map(c => ({
