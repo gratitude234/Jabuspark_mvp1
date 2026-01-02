@@ -1,3 +1,4 @@
+// src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
@@ -61,9 +62,7 @@ const routes = [
   {
     path: '/auth',
     component: AuthLayout,
-    children: [
-      { path: 'login', component: Login, meta: { title: 'Login' } },
-    ],
+    children: [{ path: 'login', component: Login, meta: { title: 'Login' } }],
   },
   {
     path: '/',
@@ -76,34 +75,29 @@ const routes = [
       { path: 'onboarding/nursing-200', component: OnboardingNursing, meta: { title: 'Nursing 200L Setup' } },
       { path: 'onboarding/request-department', component: OnboardingRequestDept, meta: { title: 'Request Department' } },
       { path: 'onboarding/department', component: OnboardingDepartment, meta: { title: 'Department Setup' } },
+
       { path: 'dashboard', component: Dashboard, meta: { title: 'Dashboard' } },
       { path: 'past-questions', component: PastQuestions, meta: { title: 'Past Questions' } },
       { path: 'materials', component: Materials, meta: { title: 'Materials' } },
 
-      // ✅ so nav "/practice" never 404s (until you create PracticeHome)
       { path: 'practice', component: PracticeHome, meta: { title: 'Practice' } },
       { path: 'practice/review', component: Review, meta: { title: 'Smart Review' } },
       { path: 'practice/:bankId', component: Practice, props: true, meta: { title: 'Practice' } },
 
-      // ✅ NEW
       { path: 'saved', component: Saved, meta: { title: 'Saved' } },
 
-      // ✅ NEW: Announcements
       { path: 'notify', component: Notify, meta: { title: 'Announcements' } },
 
-      // ✅ Study Groups
       { path: 'groups', component: Groups, meta: { title: 'Study Groups' } },
       { path: 'groups/:groupId', component: GroupDetail, props: true, meta: { title: 'Group' } },
       { path: 'groups/:groupId/new-challenge', component: GroupChallengeNew, props: true, meta: { title: 'New Challenge' } },
       { path: 'challenge/:challengeId', component: ChallengeTake, props: true, meta: { title: 'Challenge' } },
       { path: 'challenge/:challengeId/result', component: ChallengeResult, props: true, meta: { title: 'Challenge Result' } },
 
-      // ✅ 1v1 Duel
       { path: 'duel/:code', component: DuelLobby, props: true, meta: { title: '1v1 Duel' } },
       { path: 'duel/:code/take', component: DuelTake, props: true, meta: { title: 'Duel' } },
       { path: 'duel/:code/result', component: DuelResult, props: true, meta: { title: 'Duel Result' } },
 
-      // ✅ NEW killer features
       { path: 'leaderboard', component: Leaderboard, meta: { title: 'Leaderboard' } },
       { path: 'missions', component: Missions, meta: { title: 'Weekly Missions' } },
       { path: 'exam', component: ExamHome, meta: { title: 'Exam Mode' } },
@@ -128,33 +122,111 @@ const routes = [
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
 ]
 
+function getRole(auth) {
+  return auth.user?.role || 'student'
+}
+
+function isUploadsDisabled(auth) {
+  const u = auth.user || {}
+  const p = u.profile || {}
+  return Boolean(
+    u.uploadsDisabled ??
+      u.uploads_disabled ??
+      p.uploadsDisabled ??
+      p.uploads_disabled ??
+      false
+  )
+}
+
+function hasSavedStudySetup(auth) {
+  const u = auth.user || {}
+  const p = u.profile || {}
+  const nameOk = String(u.fullName || '').trim().length > 0
+  return Boolean(nameOk && p.facultyId && p.departmentId && p.level)
+}
+
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior() {
+  scrollBehavior(to, _from, savedPosition) {
+    if (savedPosition) return savedPosition
+    if (to.hash) return { el: to.hash, top: 80, behavior: 'smooth' }
     return { top: 0 }
   },
 })
 
 router.beforeEach((to) => {
   const auth = useAuthStore()
+
+  // Public
   const publicPaths = ['/auth/login']
   const needsAuth = !publicPaths.includes(to.path)
 
+  // Auth gate
   if (needsAuth && !auth.isAuthed) {
     return { path: '/auth/login', query: { next: to.fullPath } }
   }
+
+  // Onboarding gate (keeps your current behavior)
   if (auth.isAuthed && auth.needsOnboarding && !to.path.startsWith('/onboarding')) {
     return { path: '/onboarding', query: { next: to.fullPath } }
   }
 
-  // Role-based guard
+  // Role-based guard (generic)
   const roles = to.meta?.roles
   if (roles && Array.isArray(roles)) {
-    const r = auth.user?.role || 'student'
+    const r = getRole(auth)
     if (!roles.includes(r)) return '/dashboard'
   }
+
+  // ✅ Perfected workflow guards
+
+  // 1) If someone tries to open RepRequest but they're already approved/admin, send them to uploads.
+  if (to.path === '/rep/request') {
+    const r = getRole(auth)
+    if (r === 'admin' || r === 'course_rep') return '/uploads'
+  }
+
+  // 2) Uploads must be allowed AND uploads must not be disabled
+  if (to.path === '/uploads') {
+    const r = getRole(auth)
+
+    // Admin always allowed
+    if (r === 'admin') return true
+
+    // Course reps allowed only if not disabled
+    if (r === 'course_rep') {
+      if (isUploadsDisabled(auth)) {
+        return {
+          path: '/profile',
+          hash: '#uploads-reps',
+          query: { reason: 'uploads_disabled' },
+        }
+      }
+      return true
+    }
+
+    // Students: guide them to the right next step (profile → request)
+    if (hasSavedStudySetup(auth)) {
+      // They have setup; take them to request page
+      return { path: '/rep/request' }
+    }
+
+    // No setup yet; push to profile section to complete setup
+    return {
+      path: '/profile',
+      hash: '#study-settings',
+      query: { reason: 'setup_required' },
+    }
+  }
+
   return true
+})
+
+router.afterEach((to) => {
+  const base = 'JabuStudyHub'
+  const t = to.meta?.title ? `${to.meta.title} • ${base}` : base
+  document.title = t
 })
 
 export default router
