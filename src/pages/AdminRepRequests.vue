@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
@@ -33,22 +33,14 @@ const actionBusy = ref(false)
 const actionError = ref('')
 const actionOk = ref('')
 
-const adminNote = ref('') // message to user on approve/deny
-const denyReason = ref('') // optional structured reason
-const approveCourseIds = ref([]) // admin editable scope
+const adminNote = ref('')
+const denyReason = ref('')
+const approveCourseIds = ref([])
 
 // course picker
 const courseQuery = ref('')
 
 // ---- helpers ----
-function normItems(res) {
-  if (Array.isArray(res)) return res
-  if (Array.isArray(res?.data?.items)) return res.data.items
-  if (Array.isArray(res?.items)) return res.items
-  if (Array.isArray(res?.data)) return res.data
-  return []
-}
-
 function asLower(x) {
   return String(x || '').toLowerCase()
 }
@@ -72,16 +64,24 @@ function badgeForStatus(st) {
   return 'badge'
 }
 
+/**
+ * ✅ IMPORTANT: backend returns `data.requests`
+ * Keep other fallbacks too.
+ */
+function normItems(res) {
+  if (Array.isArray(res)) return res
+  if (Array.isArray(res?.data?.requests)) return res.data.requests
+  if (Array.isArray(res?.data?.items)) return res.data.items
+  if (Array.isArray(res?.items)) return res.items
+  if (Array.isArray(res?.data)) return res.data
+  return []
+}
+
 const courseById = computed(() => {
   const m = new Map()
   for (const c of (catalog.courses || [])) m.set(String(c.id), c)
   return m
 })
-
-function courseLabel(id) {
-  const c = courseById.value.get(String(id))
-  return c ? `${c.code} — ${c.title}` : String(id)
-}
 
 function getReqCourseIds(r) {
   const ids =
@@ -134,10 +134,7 @@ function selectRow(id) {
   denyReason.value = ''
 
   const r = items.value.find(x => String(x.id) === String(id))
-  if (r) {
-    // default approve scope = requested scope
-    approveCourseIds.value = [...getReqCourseIds(r)]
-  }
+  if (r) approveCourseIds.value = [...getReqCourseIds(r)]
 }
 
 const statusOptions = [
@@ -153,6 +150,8 @@ const filtered = computed(() => {
 
   let list = [...items.value]
 
+  // (When statusFilter is NOT all, list already contains that status from the server,
+  // but keep the filter anyway as a safe guard.)
   if (s && s !== 'all') {
     list = list.filter(r => getStatus(r) === s)
   }
@@ -165,7 +164,9 @@ const filtered = computed(() => {
       const fac = asLower(meta.fac)
       const reason = asLower(getReason(r))
       const ids = getReqCourseIds(r)
-      const courseText = ids.map(id => asLower(courseById.value.get(String(id))?.code || id)).join(' ')
+      const courseText = ids
+        .map(id => asLower(courseById.value.get(String(id))?.code || id))
+        .join(' ')
       return (
         name.includes(query) ||
         dept.includes(query) ||
@@ -177,13 +178,15 @@ const filtered = computed(() => {
     })
   }
 
-  // Sort: pending first, newest first within each
+  // Sort: pending first, then approved, then denied; newest first in each
   list.sort((a, b) => {
     const sa = getStatus(a)
     const sb = getStatus(b)
-    const pa = sa === 'pending' ? 0 : sa === 'denied' ? 1 : 2
-    const pb = sb === 'pending' ? 0 : sb === 'denied' ? 1 : 2
-    if (pa !== pb) return pa - pb
+    const rank = (x) => (x === 'pending' ? 0 : x === 'approved' ? 1 : 2)
+    const ra = rank(sa)
+    const rb = rank(sb)
+    if (ra !== rb) return ra - rb
+
     const da = new Date(a?.requestedAt || a?.createdAt || 0).getTime()
     const db = new Date(b?.requestedAt || b?.createdAt || 0).getTime()
     return db - da
@@ -192,10 +195,7 @@ const filtered = computed(() => {
   return list
 })
 
-const selectedRequestedCourses = computed(() => {
-  if (!selected.value) return []
-  return getReqCourseIds(selected.value)
-})
+const selectedRequestedCourses = computed(() => (selected.value ? getReqCourseIds(selected.value) : []))
 
 const approveCoursesPretty = computed(() => {
   return approveCourseIds.value
@@ -208,9 +208,7 @@ const remainingApproveCourseOptions = computed(() => {
   const query = asLower(courseQuery.value).trim()
   const chosen = new Set(approveCourseIds.value.map(String))
   let list = (catalog.courses || []).filter(c => !chosen.has(String(c.id)))
-  if (query) {
-    list = list.filter(c => asLower(`${c.code} ${c.title} ${c.level}`).includes(query))
-  }
+  if (query) list = list.filter(c => asLower(`${c.code} ${c.title} ${c.level}`).includes(query))
   return list.slice(0, 24)
 })
 
@@ -226,21 +224,49 @@ function removeApproveCourse(id) {
   approveCourseIds.value = approveCourseIds.value.filter(x => String(x) !== sid)
 }
 
+// ---- API loading ----
+async function fetchByStatus(st) {
+  const res = await apiFetch(`/admin/rep-requests?status=${encodeURIComponent(st)}`, { method: 'GET' })
+  return normItems(res)
+}
+
+function dedupeById(list) {
+  const m = new Map()
+  for (const r of list) m.set(String(r.id), r)
+  return [...m.values()]
+}
+
 async function load() {
   clearToasts()
   loading.value = true
   try {
-    const res = await apiFetch('/admin/rep-requests', { method: 'GET' })
-    items.value = normItems(res)
+    let list = []
 
-    // Auto-select first pending
-    if (!selectedId.value) {
-      const first = items.value.find(r => getStatus(r) === 'pending') || items.value[0]
-      if (first) selectRow(first.id)
+    if (statusFilter.value === 'all') {
+      // ✅ All = fetch 3 statuses then merge (works even if backend doesn't support "all")
+      const [p, a, d] = await Promise.all([
+        fetchByStatus('pending'),
+        fetchByStatus('approved'),
+        fetchByStatus('denied'),
+      ])
+      list = dedupeById([...(p || []), ...(a || []), ...(d || [])])
     } else {
-      // keep selection, but refresh editable scope defaults if the item changed
-      const r = items.value.find(x => String(x.id) === String(selectedId.value))
-      if (r) approveCourseIds.value = [...getReqCourseIds(r)]
+      list = await fetchByStatus(statusFilter.value)
+    }
+
+    items.value = Array.isArray(list) ? list : []
+
+    // Selection
+    if (!items.value.length) {
+      selectedId.value = ''
+      approveCourseIds.value = []
+    } else if (selectedId.value) {
+      const keep = items.value.find(x => String(x.id) === String(selectedId.value))
+      if (!keep) selectRow(items.value[0].id)
+      else approveCourseIds.value = [...getReqCourseIds(keep)]
+    } else {
+      const firstPending = items.value.find(r => getStatus(r) === 'pending')
+      selectRow((firstPending || items.value[0]).id)
     }
   } catch (e) {
     error.value = e?.message || 'Failed to load requests.'
@@ -260,7 +286,6 @@ async function approve() {
 
   actionBusy.value = true
   try {
-    // Send multiple keys for compatibility with your backend
     await apiFetch('/admin/rep-requests/approve', {
       method: 'POST',
       body: {
@@ -316,6 +341,11 @@ async function deny() {
   }
 }
 
+// ✅ refresh automatically when status changes (so admin doesn't forget to hit refresh)
+watch(statusFilter, async () => {
+  await load()
+})
+
 // ---- lifecycle ----
 onMounted(async () => {
   if (role.value !== 'admin') {
@@ -323,7 +353,6 @@ onMounted(async () => {
     return
   }
 
-  // Load courses for readable request scopes
   await catalog.fetchCourses?.({})
   await load()
 })
@@ -383,7 +412,12 @@ onMounted(async () => {
         <div v-if="loading" class="sub">Loading…</div>
 
         <div v-else-if="filtered.length === 0" class="alert alert-ok" role="status">
-          No requests match your filters.
+          <div v-if="items.length === 0 && statusFilter !== 'all'">
+            No <b>{{ statusFilter }}</b> requests found.
+          </div>
+          <div v-else>
+            No requests match your filters.
+          </div>
         </div>
 
         <div v-else class="grid gap-2">
@@ -493,6 +527,7 @@ onMounted(async () => {
 
             <div class="mt-3">
               <div class="text-xs text-text-3 mb-2">Selected</div>
+
               <div v-if="approveCourseIds.length === 0" class="alert alert-danger" role="status">
                 Add at least one course.
               </div>
@@ -543,11 +578,13 @@ onMounted(async () => {
           <div class="card card-pad border border-border/70 bg-surface/60">
             <div class="text-sm font-semibold">Admin note (shown to user)</div>
             <p class="sub mt-1">Explain your decision or give next steps. Highly recommended on deny.</p>
+
             <textarea
               v-model="adminNote"
               class="input min-h-[110px] mt-3"
               placeholder="e.g., Approved. Upload only PDF scans. Use correct session/semester."
             />
+
             <div class="mt-3">
               <label class="label">Deny reason (optional)</label>
               <input
