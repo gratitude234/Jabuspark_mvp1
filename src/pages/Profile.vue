@@ -195,6 +195,93 @@ async function logout() {
   await auth.logout()
   router.push('/auth/login')
 }
+
+/**
+ * Course Rep / Upload workflow helpers (UX only; no backend changes)
+ */
+const hasStudySetup = computed(() => !!facultyId.value && !!departmentId.value && !!level.value && !!(fullName.value || '').trim())
+
+const isProfileDirty = computed(() => {
+  const u = user.value || {}
+  const p = profile.value || {}
+  return (
+    (fullName.value || '') !== (u.fullName || '') ||
+    (facultyId.value || null) !== (p.facultyId || null) ||
+    (departmentId.value || null) !== (p.departmentId || null) ||
+    Number(level.value || 0) !== Number(p.level || 0)
+  )
+})
+
+// Best-effort: if backend already provides request state anywhere, we’ll display it.
+// If not, the UI still works (falls back to “Not requested”).
+const repRequestRaw = computed(() => {
+  const u = user.value || {}
+  const p = profile.value || {}
+  return (
+    u.repRequest ||
+    u.rep_request ||
+    u.courseRepRequest ||
+    p.repRequest ||
+    p.rep_request ||
+    p.courseRepRequest ||
+    null
+  )
+})
+
+const repState = computed(() => {
+  if (role.value === 'admin') return 'admin'
+  if (role.value === 'course_rep') return 'approved'
+
+  const p = profile.value || {}
+  const raw =
+    repRequestRaw.value?.status ||
+    repRequestRaw.value?.state ||
+    p.repStatus ||
+    p.rep_status ||
+    null
+
+  if (!raw) return 'none'
+  const s = String(raw).toLowerCase()
+  if (s === 'rejected') return 'denied'
+  return s
+})
+
+const repStateLabel = computed(() => {
+  switch (repState.value) {
+    case 'approved': return 'Approved'
+    case 'pending': return 'Pending'
+    case 'denied': return 'Denied'
+    case 'admin': return 'Admin'
+    default: return 'Not requested'
+  }
+})
+
+function scrollToId(id) {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+async function goRepRequest() {
+  // Gate 1: must have setup fields picked
+  if (!hasStudySetup.value) {
+    error.value = 'Set your Faculty, Department and Level first (then save) before requesting upload access.'
+    scrollToId('study-settings')
+    return
+  }
+
+  // Gate 2: avoid wrong-department requests by saving before opening request flow
+  if (isProfileDirty.value) {
+    await save()
+    if (error.value) return
+  }
+
+  router.push('/rep/request')
+}
+
+function goUploads() {
+  router.push('/uploads')
+}
 </script>
 
 <template>
@@ -295,26 +382,92 @@ async function logout() {
       </div>
     </AppCard>
 
-    <AppCard>
+    <!-- ✅ Improved workflow -->
+    <AppCard id="uploads-reps">
       <div class="row">
         <div>
           <div class="h2">Uploads & course reps</div>
-          <p class="sub mt-1">Request course-rep access (if you upload content) or manage reps (admin).</p>
+          <p class="sub mt-1">
+            One flow: set your department → request upload access → get approved → upload content.
+          </p>
         </div>
       </div>
 
       <div class="divider my-4" />
 
       <div class="grid gap-3 sm:grid-cols-2">
+        <!-- Main flow card (all users see this) -->
         <div class="card card-pad border border-border/70 bg-surface/60">
-          <div class="text-sm font-semibold">Course rep status</div>
-          <p class="sub mt-1">View your request status (pending/approved/denied) and assigned courses.</p>
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold">Uploader access</div>
+              <p class="sub mt-1">
+                <span v-if="role === 'course_rep'">You can upload for your assigned courses.</span>
+                <span v-else-if="role === 'admin'">Admins can upload and manage course reps.</span>
+                <span v-else>Apply to become a course rep (class rep/department rep) to upload past questions and materials.</span>
+              </p>
+            </div>
+            <span class="badge" :title="repState">{{ repStateLabel }}</span>
+          </div>
+
+          <!-- Guardrails -->
+          <div v-if="role !== 'course_rep' && role !== 'admin' && !hasStudySetup" class="alert alert-danger mt-3" role="status">
+            Set your Faculty, Department and Level first (then save) before requesting upload access.
+          </div>
+
+          <div v-else-if="isProfileDirty" class="alert alert-ok mt-3" role="status">
+            You have unsaved profile changes — save first so your request uses the correct department/level.
+          </div>
+
+          <!-- Actions -->
           <div class="mt-3 flex flex-wrap gap-2">
-            <RouterLink to="/rep/request" class="btn btn-ghost">Course rep request</RouterLink>
-            <RouterLink v-if="role === 'course_rep' || role === 'admin'" to="/uploads" class="btn">Open uploads</RouterLink>
+            <!-- Approved uploaders -->
+            <AppButton
+              v-if="role === 'course_rep' || role === 'admin'"
+              class="btn-primary"
+              @click="goUploads"
+            >
+              Open uploads
+            </AppButton>
+
+            <!-- Course reps can request expansion -->
+            <button
+              v-if="role === 'course_rep'"
+              type="button"
+              class="btn btn-ghost"
+              @click="goRepRequest"
+            >
+              Request more access
+            </button>
+
+            <!-- Students apply -->
+            <button
+              v-else-if="role !== 'admin'"
+              type="button"
+              class="btn btn-ghost"
+              @click="goRepRequest"
+            >
+              Apply for upload access
+            </button>
+
+            <!-- Helpful navigation -->
+            <button type="button" class="btn btn-ghost" @click="scrollToId('study-settings')">
+              Go to study settings
+            </button>
+          </div>
+
+          <!-- Micro “how it works” (makes it obvious) -->
+          <div class="mt-4 text-xs text-text-3">
+            <div class="font-semibold text-text-2 mb-1">How it works</div>
+            <ul class="list-disc pl-4 space-y-1">
+              <li>Set your department and level (Study settings) and save.</li>
+              <li>Request upload access (Course rep). Admin reviews it.</li>
+              <li>Once approved, “Open uploads” unlocks for you here.</li>
+            </ul>
           </div>
         </div>
 
+        <!-- Admin tools OR helper card -->
         <div v-if="role === 'admin'" class="card card-pad border border-border/70 bg-surface/60">
           <div class="text-sm font-semibold">Admin tools</div>
           <p class="sub mt-1">Review requests, manage reps and audit upload changes.</p>
@@ -327,16 +480,18 @@ async function logout() {
         </div>
 
         <div v-else class="card card-pad border border-border/70 bg-surface/60">
-          <div class="text-sm font-semibold">Want to help your department?</div>
-          <p class="sub mt-1">If you are a class rep or department rep, request course-rep access and upload past questions/materials.</p>
-          <div class="mt-3">
-            <RouterLink to="/rep/request" class="btn btn-ghost">Request access</RouterLink>
+          <div class="text-sm font-semibold">Tip for reps</div>
+          <p class="sub mt-1">
+            Keep uploads clean and correctly tagged (course, level, semester, session). Incorrect uploads may be rejected.
+          </p>
+          <div class="mt-3 text-xs text-text-3">
+            If you’re a department rep, request access for the department scope — not just one course.
           </div>
         </div>
       </div>
     </AppCard>
 
-    <AppCard>
+    <AppCard id="study-settings">
       <div class="h2">Study settings</div>
       <p class="sub mt-1">These control what content you see by default.</p>
 
@@ -415,7 +570,7 @@ async function logout() {
             v-for="c in selectedExtras"
             :key="c.id"
             type="button"
-            class="pill"
+            class="chip"
             @click="removeExtraCourse(c.id)"
             :disabled="busy"
             title="Remove"
@@ -466,12 +621,3 @@ async function logout() {
     </AppCard>
   </div>
 </template>
-
-<style scoped>
-.pill {
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 9999px;
-  padding: 0.35rem 0.6rem;
-  font-size: 0.8rem;
-}
-</style>
