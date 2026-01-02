@@ -221,12 +221,7 @@ async function uploadMaterial() {
 }
 
 // ---- Manage uploads: list/edit/delete ----
-//
-// IMPORTANT:
-// Your current frontend calls /uploader/* endpoints.
-// If those endpoints are not available yet on backend, we fall back to /pastquestions and /materials list routes
-// (assuming they can accept mine=1 and optional courseId).
-//
+
 async function fetchMinePast() {
   const cid = filterCourseId.value || ''
   // 1) preferred
@@ -289,12 +284,10 @@ function startEdit(kind, item) {
 }
 
 function canManageItem(item) {
-  // If backend returns only “mine”, this will always be true for course_reps.
-  // But if admin sees all, allow admin always, otherwise allow if createdBy matches.
   if (role.value === 'admin') return true
   const createdBy =
     item?.createdBy ?? item?.created_by ?? item?.uploaderId ?? item?.uploader_id ?? item?.userId ?? item?.user_id ?? null
-  if (createdBy === null || createdBy === undefined) return true // if not provided, don’t block UI
+  if (createdBy === null || createdBy === undefined) return true
   return String(createdBy) === meId.value
 }
 
@@ -302,7 +295,6 @@ async function saveEdit() {
   if (!edit.value) return
   resetManageMessages()
 
-  // Basic validation
   if (!String(edit.value.title || '').trim()) {
     listError.value = 'Title is required.'
     return
@@ -310,7 +302,6 @@ async function saveEdit() {
 
   try {
     if (edit.value.kind === 'past') {
-      // NOTE: requires backend support for PATCH.
       await apiFetch('/pastquestions', {
         method: 'PATCH',
         body: {
@@ -326,7 +317,6 @@ async function saveEdit() {
         .map(t => t.trim())
         .filter(Boolean)
 
-      // NOTE: requires backend support for PATCH.
       await apiFetch('/materials', {
         method: 'PATCH',
         body: {
@@ -342,7 +332,6 @@ async function saveEdit() {
     await loadMine()
   } catch (e) {
     const msg = e?.message || 'Update failed.'
-    // Friendly hint if backend doesn’t support PATCH yet
     if (/method not allowed|405/i.test(msg)) {
       listError.value = 'Editing is not available yet (API PATCH endpoint not enabled).'
     } else {
@@ -382,11 +371,7 @@ function viewUrl(item) {
 
 onMounted(async () => {
   await catalog.fetchCourses({})
-
-  // If user is rep/admin, ensure course selection is valid
   ensureValidCourseSelection()
-
-  // If no upload access, still show page but don’t crash load
   await loadMine()
 })
 
@@ -395,7 +380,6 @@ watch(courseOptions, () => {
 })
 
 watch(courseId, (next) => {
-  // If course changes and user hasn't chosen a manage filter, follow it
   if (!filterCourseId.value && next) filterCourseId.value = next
 })
 
@@ -548,6 +532,7 @@ watch(filterCourseId, () => {
           <div>
             <label class="label">Type</label>
             <AppSelect
+              id="materialTypePick"
               v-model="mType"
               :options="[
                 { value: 'pdf', label: 'PDF' },
@@ -592,6 +577,7 @@ watch(filterCourseId, () => {
         <div class="sm:col-span-1">
           <label class="label">Filter by course</label>
           <AppSelect
+            id="manageCourseFilterPick"
             v-model="filterCourseId"
             :options="[{ value: '', label: 'All courses' }, ...courseOptions]"
             placeholder="All courses"
@@ -719,6 +705,7 @@ watch(filterCourseId, () => {
                 <div>
                   <label class="label">Type</label>
                   <AppSelect
+                    :id="`editMaterialType-${m.id}`"
                     v-model="edit.type"
                     :options="[
                       { value: 'pdf', label: 'PDF' },
