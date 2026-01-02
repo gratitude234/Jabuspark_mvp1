@@ -349,7 +349,12 @@ async function goRepRequest() {
     if (error.value) return
   }
 
-  router.push('/rep/request')
+  // ✅ FIX: course reps requesting more access should land on /rep/request?mode=more
+  if (role.value === 'course_rep') {
+    router.push({ path: '/rep/request', query: { mode: 'more' } })
+  } else {
+    router.push('/rep/request')
+  }
 }
 
 function goUploads() {

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { apiFetch } from '../utils/api'
@@ -10,12 +10,24 @@ import AppSelect from '../components/AppSelect.vue'
 import AppButton from '../components/AppButton.vue'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const catalog = useCatalogStore()
 
 const user = computed(() => auth.user || {})
 const profile = computed(() => user.value.profile || {})
 const role = computed(() => user.value.role || 'student')
+
+// ✅ “Request more access” mode (for already-approved course reps)
+const isMoreMode = computed(() => String(route.query?.mode || '').toLowerCase() === 'more')
+const isApprovedRole = computed(() => auth.user?.role === 'course_rep' || auth.user?.role === 'admin')
+const pageTitle = computed(() => (isMoreMode.value ? 'Request more access' : 'Course Rep Access'))
+const pageSub = computed(() => {
+  if (isMoreMode.value) {
+    return 'Request additional upload access for more courses. An admin must approve it.'
+  }
+  return 'Request upload permission for your department courses. An admin must approve you.'
+})
 
 const request = ref(null)
 const loading = ref(false)
@@ -128,7 +140,6 @@ const customCourseOptions = computed(() => {
 async function loadMyRequest() {
   try {
     const res = await apiFetch('/rep/my', { method: 'GET' })
-    // backend typically returns { data: { request: ... } }
     request.value = res?.data?.request || res?.request || null
   } catch {
     request.value = null
@@ -181,7 +192,6 @@ async function submit() {
 
     ok.value = 'Request submitted. You’ll see the status update once an admin reviews it.'
     await loadMyRequest()
-    // Small UX: clear custom search
     courseQuery.value = ''
   } catch (e) {
     error.value = e?.message || 'Failed to submit request.'
@@ -195,8 +205,9 @@ function goProfileToFix() {
 }
 
 onMounted(async () => {
-  // If already approved role, no need to request
-  if (auth.user?.role === 'course_rep' || auth.user?.role === 'admin') {
+  // ✅ OLD behavior was forcing approved reps/admins straight to uploads.
+  // ✅ NEW: allow course reps when they came here in “more access” mode.
+  if (isApprovedRole.value && !isMoreMode.value) {
     router.replace('/uploads')
     return
   }
@@ -207,21 +218,16 @@ onMounted(async () => {
   // Load existing request first (so we can block duplicates)
   await loadMyRequest()
 
-  // Prepare dept courses (required for “perfect workflow”)
+  // Prepare dept courses
   if (departmentId.value) {
     await refreshDeptCourses()
   }
 
   // Preselect dept courses by default
   ensureDeptDefaultsSelected()
-
-  // If denied previously, allow resubmission without forcing anything else
-  // (reason + proof should be edited by user)
 })
 
 watch(level, async () => {
-  // If user changes level here, reflect dept-courses for that level.
-  // Note: this page does not update profile; it only uses the level for request metadata.
   error.value = ''
   ok.value = ''
   await refreshDeptCourses()
@@ -231,9 +237,7 @@ watch(level, async () => {
 watch(mode, () => {
   error.value = ''
   ok.value = ''
-  if (mode.value === 'dept') {
-    ensureDeptDefaultsSelected()
-  }
+  if (mode.value === 'dept') ensureDeptDefaultsSelected()
 })
 </script>
 
@@ -245,10 +249,16 @@ watch(mode, () => {
       <div class="relative">
         <div class="row">
           <div>
-            <div class="h1">Course Rep Access</div>
-            <p class="sub mt-1">
-              Request upload permission for your department courses. An admin must approve you.
-            </p>
+            <div class="h1">{{ pageTitle }}</div>
+            <p class="sub mt-1">{{ pageSub }}</p>
+
+            <div
+              v-if="isMoreMode && role === 'course_rep'"
+              class="mt-2 inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full bg-white/5 border border-border/60"
+            >
+              <span class="badge bg-accent/15 border border-accent/30 text-text">Course rep</span>
+              <span class="text-text-3">You can request extra course access here.</span>
+            </div>
           </div>
           <RouterLink to="/profile" class="btn btn-ghost">Back</RouterLink>
         </div>
@@ -290,12 +300,7 @@ watch(mode, () => {
           </div>
 
           <div v-if="Array.isArray(request.courseIds) && request.courseIds.length" class="mt-3 flex flex-wrap gap-2">
-            <span
-              v-for="cid in request.courseIds"
-              :key="cid"
-              class="chip"
-              :title="String(cid)"
-            >
+            <span v-for="cid in request.courseIds" :key="cid" class="chip" :title="String(cid)">
               {{ byId.get(String(cid))?.code || cid }}
             </span>
           </div>
@@ -431,7 +436,10 @@ watch(mode, () => {
                       {{ selectedCourseIds.map(String).includes(String(c.id)) ? 'Selected' : 'Tap to select' }}
                     </div>
                   </div>
-                  <span class="badge" :class="selectedCourseIds.map(String).includes(String(c.id)) ? 'bg-accent/15 border-accent/30 text-text' : ''">
+                  <span
+                    class="badge"
+                    :class="selectedCourseIds.map(String).includes(String(c.id)) ? 'bg-accent/15 border-accent/30 text-text' : ''"
+                  >
                     {{ selectedCourseIds.map(String).includes(String(c.id)) ? '✓' : '+' }}
                   </span>
                 </div>
