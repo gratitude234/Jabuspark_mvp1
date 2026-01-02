@@ -153,7 +153,73 @@ watch([departmentId, level], async () => {
   prevBaseIds.value = [...baseCourseIds.value]
 })
 
-// --- Save profile ---
+// --- UX: dirty-state + clarity about what "Save" does ---
+function asStrList(arr) {
+  return (Array.isArray(arr) ? arr : []).map(x => String(x)).sort()
+}
+function sameList(a, b) {
+  const A = asStrList(a)
+  const B = asStrList(b)
+  if (A.length !== B.length) return false
+  for (let i = 0; i < A.length; i++) if (A[i] !== B[i]) return false
+  return true
+}
+
+const isNameDirty = computed(() => (fullName.value || '') !== (user.value?.fullName || ''))
+const isStudySettingsDirty = computed(() => {
+  const p = profile.value || {}
+  return (
+    (facultyId.value || null) !== (p.facultyId || null) ||
+    (departmentId.value || null) !== (p.departmentId || null) ||
+    Number(level.value || 0) !== Number(p.level || 0)
+  )
+})
+const isCoursesDirty = computed(() => {
+  const p = profile.value || {}
+  return !sameList(selectedCourseIds.value, p.courseIds || [])
+})
+
+const dirtySections = computed(() => {
+  const s = []
+  if (isNameDirty.value) s.push('Name')
+  if (isStudySettingsDirty.value) s.push('Study settings')
+  if (isCoursesDirty.value) s.push('Courses')
+  return s
+})
+
+const isDirty = computed(() => dirtySections.value.length > 0)
+
+const saveCtaLabel = computed(() => {
+  // clearer CTA (the whole goal of this change)
+  return 'Save profile & study settings'
+})
+
+function scrollToId(id) {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+async function resetToSaved() {
+  const u = user.value || {}
+  const p = profile.value || {}
+
+  fullName.value = u.fullName || ''
+  facultyId.value = p.facultyId || null
+  departmentId.value = p.departmentId || null
+  level.value = p.level || 200
+  pickedCourseIds.value = [...(p.courseIds || [])]
+  courseQuery.value = ''
+  savedOk.value = false
+  error.value = ''
+
+  // best-effort refresh for consistency after reset
+  if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
+  await refreshDeptCourses()
+  prevBaseIds.value = [...baseCourseIds.value]
+}
+
+// --- Save profile (also saves study settings + courses) ---
 async function save() {
   error.value = ''
   savedOk.value = false
@@ -192,7 +258,6 @@ async function logout() {
 }
 
 // --- Upload / course rep workflow (perfected) ---
-// Gate: require saved study setup before request
 const hasStudySetup = computed(() => {
   const n = (fullName.value || '').trim()
   return !!n && !!facultyId.value && !!departmentId.value && !!level.value
@@ -209,7 +274,6 @@ const isProfileDirty = computed(() => {
   )
 })
 
-// uploads disabled (admin toggle)
 const uploadsDisabled = computed(() => {
   const u = user.value || {}
   const p = profile.value || {}
@@ -222,7 +286,6 @@ const uploadsDisabled = computed(() => {
   )
 })
 
-// Rep scope: assigned courses
 const repCourseIds = computed(() => {
   const u = user.value || {}
   const p = profile.value || {}
@@ -250,13 +313,11 @@ const repCoursesLabel = computed(() => {
     .map(c => `${c.code}`)
 })
 
-// Rep request status: pull from /rep/my (source of truth)
 const repBusy = ref(false)
 const repError = ref('')
-const repInfo = ref(null) // { status, message, reason, requestedAt, decidedAt, ... }
+const repInfo = ref(null)
 
 function normalizeRepInfo(res) {
-  // supports {data:{...}} or {...}
   const r = res?.data ?? res
   if (!r || typeof r !== 'object') return null
   return r
@@ -269,7 +330,6 @@ async function fetchRepStatus() {
     const res = await apiFetch('/rep/my', { method: 'GET' })
     repInfo.value = normalizeRepInfo(res)
   } catch (e) {
-    // Non-fatal: UI still works without it
     repInfo.value = null
     repError.value = ''
   } finally {
@@ -278,11 +338,9 @@ async function fetchRepStatus() {
 }
 
 const repState = computed(() => {
-  // hard truth by role
   if (role.value === 'admin') return 'admin'
   if (role.value === 'course_rep') return 'approved'
 
-  // preferred: /rep/my
   const s1 = repInfo.value?.status || repInfo.value?.state
   if (s1) {
     const s = String(s1).toLowerCase()
@@ -291,7 +349,6 @@ const repState = computed(() => {
     if (s === 'pending') return 'pending'
   }
 
-  // fallback: any fields in profile
   const p = profile.value || {}
   const raw = p.repStatus || p.rep_status || null
   if (!raw) return 'none'
@@ -320,36 +377,26 @@ const repHint = computed(() => {
   return 'Apply to become a course rep to upload past questions and materials.'
 })
 
-function scrollToId(id) {
-  const el = document.getElementById(id)
-  if (!el) return
-  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
 async function goRepRequest() {
   error.value = ''
 
-  // Gate 1: must have setup fields
   if (!hasStudySetup.value) {
     error.value = 'Set your Full name, Faculty, Department and Level first (then save) before requesting upload access.'
     scrollToId('study-settings')
     return
   }
 
-  // Gate 2: must have department courses loaded (prevents requests before catalog is ready)
   if (baseCourseIds.value.length === 0) {
     error.value = 'No department courses found for your selected department/level yet. Change department/level or contact admin.'
     scrollToId('study-settings')
     return
   }
 
-  // Gate 3: avoid wrong-department requests by saving first
   if (isProfileDirty.value) {
     await save()
     if (error.value) return
   }
 
-  // ✅ FIX: course reps requesting more access should land on /rep/request?mode=more
   if (role.value === 'course_rep') {
     router.push({ path: '/rep/request', query: { mode: 'more' } })
   } else {
@@ -369,27 +416,56 @@ function goUploads() {
 // --- Lifecycle ---
 onMounted(async () => {
   await catalog.bootstrap()
-  await catalog.fetchCourses() // full catalog for search + course labels
-
+  await catalog.fetchCourses()
   await data.fetchProgress()
 
   if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
   await refreshDeptCourses()
   prevBaseIds.value = [...baseCourseIds.value]
 
-  // pull rep status once profile is loaded
   await fetchRepStatus()
 })
 </script>
 
 <template>
   <div class="page">
+    <!-- Sticky save bar (shows when user edits Study settings / Name / Courses) -->
+    <div v-if="isDirty" class="fixed inset-x-0 bottom-3 z-40 px-3">
+      <div class="container-app">
+        <div class="card card-pad border border-border/70 bg-surface/80 backdrop-blur">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-semibold">Unsaved changes</div>
+              <div class="text-xs text-text-3 mt-1">
+                You changed: <b>{{ dirtySections.join(', ') }}</b>. These will reset after reload unless you save.
+              </div>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2">
+              <AppButton :disabled="busy" class="btn-primary" @click="save">
+                <span v-if="!busy">{{ saveCtaLabel }}</span>
+                <span v-else>Saving…</span>
+              </AppButton>
+              <button class="btn btn-ghost" :disabled="busy" @click="resetToSaved">Discard</button>
+              <button class="btn btn-ghost" type="button" @click="scrollToId('profile-top')">Go to top</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Header -->
-    <AppCard class="relative overflow-hidden">
+    <AppCard id="profile-top" class="relative overflow-hidden">
       <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/12 via-transparent to-transparent" />
       <div class="relative">
         <div class="h1">Profile</div>
-        <p class="sub mt-1">Update your study profile and account details.</p>
+        <p class="sub mt-1">Update your name, study settings and course selections.</p>
+
+        <!-- Clarity chips: what this save button includes -->
+        <div class="mt-3 flex flex-wrap gap-2">
+          <span class="chip">Saves: Name</span>
+          <span class="chip">Faculty / Department / Level</span>
+          <span class="chip">Courses (auto + extras)</span>
+        </div>
 
         <div class="mt-5 grid gap-4 sm:grid-cols-2">
           <div>
@@ -401,19 +477,21 @@ onMounted(async () => {
               autocomplete="name"
               placeholder="Your full name"
             />
-            <p class="help">Used for your dashboard greeting.</p>
+            <p class="help">Used for your dashboard greeting and account display.</p>
           </div>
 
           <div class="flex flex-col sm:items-end sm:justify-end gap-2">
-            <AppButton class="w-full sm:w-auto" :disabled="busy" @click="save">
-              <span v-if="!busy">Save changes</span>
+            <AppButton class="w-full sm:w-auto btn-primary" :disabled="busy" @click="save">
+              <span v-if="!busy">{{ saveCtaLabel }}</span>
               <span v-else>Saving…</span>
             </AppButton>
             <button class="btn btn-ghost w-full sm:w-auto" @click="logout">Log out</button>
           </div>
         </div>
 
-        <div v-if="savedOk" class="alert alert-ok mt-4" role="status">Saved successfully.</div>
+        <div v-if="savedOk" class="alert alert-ok mt-4" role="status">
+          Saved successfully. Your study settings will stay after reload.
+        </div>
         <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
       </div>
     </AppCard>
@@ -482,12 +560,12 @@ onMounted(async () => {
       </div>
     </AppCard>
 
-    <!-- ✅ Perfected workflow entrypoint -->
+    <!-- Uploads & reps -->
     <AppCard id="uploads-reps">
       <div class="row">
         <div>
           <div class="h2">Uploads & course reps</div>
-          <p class="sub mt-1">One flow: set department → request access → get approved → upload.</p>
+          <p class="sub mt-1">One flow: set department → save → request access → get approved → upload.</p>
         </div>
         <div class="flex gap-2">
           <button class="btn btn-ghost" :disabled="repBusy" @click="fetchRepStatus">
@@ -500,7 +578,6 @@ onMounted(async () => {
       <div class="divider my-4" />
 
       <div class="grid gap-3 sm:grid-cols-2">
-        <!-- Main workflow card -->
         <div class="card card-pad border border-border/70 bg-surface/60">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -519,13 +596,12 @@ onMounted(async () => {
             <span class="badge" :title="repState">{{ repStateLabel }}</span>
           </div>
 
-          <!-- Guardrails -->
           <div v-if="role !== 'course_rep' && role !== 'admin' && !hasStudySetup" class="alert alert-danger mt-3" role="status">
-            Set your Full name, Faculty, Department and Level first (then save) before requesting upload access.
+            Set your Full name, Faculty, Department and Level (then save) before requesting upload access.
           </div>
 
-          <div v-else-if="isProfileDirty" class="alert alert-ok mt-3" role="status">
-            You have unsaved profile changes — save first so your request uses the correct department/level.
+          <div v-else-if="isDirty" class="alert alert-ok mt-3" role="status">
+            You have unsaved changes — click <b>{{ saveCtaLabel }}</b> so your request uses the correct department/level.
           </div>
 
           <div v-else-if="baseCourseIds.length === 0 && departmentId" class="alert alert-danger mt-3" role="status">
@@ -536,9 +612,7 @@ onMounted(async () => {
             Uploads are disabled for your account.
           </div>
 
-          <!-- Actions -->
           <div class="mt-3 flex flex-wrap gap-2">
-            <!-- Approved uploaders -->
             <AppButton
               v-if="role === 'course_rep' || role === 'admin'"
               class="btn-primary"
@@ -548,38 +622,19 @@ onMounted(async () => {
               Open uploads
             </AppButton>
 
-            <!-- Pending -->
-            <button
-              v-else-if="repState === 'pending'"
-              type="button"
-              class="btn btn-ghost"
-              disabled
-            >
+            <button v-else-if="repState === 'pending'" type="button" class="btn btn-ghost" disabled>
               Request pending
             </button>
 
-            <!-- Denied / None -->
-            <button
-              v-else-if="role !== 'admin'"
-              type="button"
-              class="btn btn-ghost"
-              @click="goRepRequest"
-            >
+            <button v-else-if="role !== 'admin'" type="button" class="btn btn-ghost" @click="goRepRequest">
               <span v-if="repState === 'denied'">Edit & resubmit request</span>
               <span v-else>Apply for upload access</span>
             </button>
 
-            <!-- Approved reps can request more -->
-            <button
-              v-if="role === 'course_rep'"
-              type="button"
-              class="btn btn-ghost"
-              @click="goRepRequest"
-            >
+            <button v-if="role === 'course_rep'" type="button" class="btn btn-ghost" @click="goRepRequest">
               Request more access
             </button>
 
-            <!-- Helpful navigation -->
             <button type="button" class="btn btn-ghost" @click="scrollToId('study-settings')">
               Study settings
             </button>
@@ -588,14 +643,13 @@ onMounted(async () => {
           <div class="mt-4 text-xs text-text-3">
             <div class="font-semibold text-text-2 mb-1">How it works</div>
             <ul class="list-disc pl-4 space-y-1">
-              <li>Save your department & level.</li>
-              <li>Request uploader access (course rep).</li>
-              <li>After approval, uploads unlock instantly here.</li>
+              <li>Pick your department & level.</li>
+              <li>Click <b>{{ saveCtaLabel }}</b>.</li>
+              <li>Request uploader access and wait for approval.</li>
             </ul>
           </div>
         </div>
 
-        <!-- Admin tools OR helper -->
         <div v-if="role === 'admin'" class="card card-pad border border-border/70 bg-surface/60">
           <div class="text-sm font-semibold">Admin tools</div>
           <p class="sub mt-1">Review requests, manage reps and audit upload changes.</p>
@@ -621,8 +675,31 @@ onMounted(async () => {
 
     <!-- Study settings -->
     <AppCard id="study-settings">
-      <div class="h2">Study settings</div>
-      <p class="sub mt-1">These control what content you see by default.</p>
+      <div class="row">
+        <div>
+          <div class="h2">Study settings</div>
+          <p class="sub mt-1">These control what content you see by default.</p>
+          <p class="help mt-2">
+            Important: changes here only persist after you click <b>{{ saveCtaLabel }}</b>.
+          </p>
+        </div>
+
+        <!-- Section save CTA (same global save) -->
+        <div class="flex flex-col sm:flex-row gap-2 sm:items-start">
+          <AppButton class="w-full sm:w-auto btn-primary" :disabled="busy" @click="save">
+            <span v-if="!busy">Save study settings</span>
+            <span v-else>Saving…</span>
+          </AppButton>
+          <button class="btn btn-ghost w-full sm:w-auto" type="button" @click="scrollToId('profile-top')">
+            View full profile save
+          </button>
+        </div>
+      </div>
+
+      <div v-if="isStudySettingsDirty || isCoursesDirty" class="alert alert-ok mt-4" role="status">
+        You have unsaved changes in <b>{{ [isStudySettingsDirty ? 'Study settings' : null, isCoursesDirty ? 'Courses' : null].filter(Boolean).join(' & ') }}</b>.
+        Click <b>{{ saveCtaLabel }}</b> to keep them after reload.
+      </div>
 
       <div class="divider my-4" />
 
@@ -661,7 +738,7 @@ onMounted(async () => {
           Select a department and level to load your default courses.
         </div>
         <div v-else-if="baseCourses.length === 0" class="alert alert-danger" role="status">
-          No courses found for this department/level yet.
+          No courses found for this department/level yet. You can’t save these settings until default courses exist.
         </div>
 
         <div v-else class="grid gap-2 sm:grid-cols-2">
@@ -733,6 +810,11 @@ onMounted(async () => {
 
         <div class="mt-4 text-xs text-text-3">
           Total courses: <b>{{ selectedCourseIds.length }}</b> (department + extras)
+        </div>
+
+        <!-- Another save reminder at the bottom (when deep scrolling) -->
+        <div v-if="isDirty" class="alert alert-ok mt-4" role="status">
+          Tip: Click <b>{{ saveCtaLabel }}</b> (top or sticky bar) to keep these changes after reload.
         </div>
       </div>
     </AppCard>
