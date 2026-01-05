@@ -50,9 +50,9 @@ async function joinOrStart() {
   busy.value = true
   error.value = ''
   try {
-    const res = await data.startDuel(code.value)
-    const qs = res?.questions || []
-    if ((res?.duel?.status === 'live') && qs.length) {
+    const res = await data.joinDuel(code.value)
+    if (res?.duel?.status === 'live') {
+      // Questions are fetched in the /take page (read-only endpoint)
       router.push(`/duel/${code.value}/take`)
     } else if (res?.duel?.status === 'completed') {
       router.push(`/duel/${code.value}/result`)
@@ -76,10 +76,9 @@ async function copyLink() {
 function startPolling() {
   stopPolling()
   poll = setInterval(async () => {
-    // Prefer calling start (it will flip to live once 2nd player joins)
     try {
-      const res = await data.startDuel(code.value)
-      if (res?.duel?.status === 'live' && (res?.questions || []).length) {
+      const res = await data.getDuel(code.value)
+      if (res?.duel?.status === 'live') {
         stopPolling()
         router.push(`/duel/${code.value}/take`)
       } else if (res?.duel?.status === 'completed') {

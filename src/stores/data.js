@@ -532,15 +532,41 @@ export const useDataStore = defineStore('data', {
       return res?.data
     },
 
-    async startDuel(code) {
-      const res = await apiFetch(`/duel/start?code=${encodeURIComponent(code)}`)
+    // Join a duel (side effects: inserts participant row; auto-starts when 2nd player joins)
+    async joinDuel(code) {
+      const res = await apiFetch('/duel/join', {
+        method: 'POST',
+        body: { code },
+      })
       this.duel = {
         ...this.duel,
         duel: res?.data?.duel || this.duel.duel,
         participants: res?.data?.participants || this.duel.participants,
+      }
+      return res?.data
+    },
+
+    // Fetch questions for a live duel (read-only)
+    async getDuelQuestions(code) {
+      const res = await apiFetch(`/duel/questions?code=${encodeURIComponent(code)}`)
+      this.duel = {
+        ...this.duel,
+        duel: res?.data?.duel || this.duel.duel,
         questions: res?.data?.questions || [],
       }
       return res?.data
+    },
+
+    async startDuel(code) {
+      // Backwards-compatible helper:
+      //   - join duel (side effects)
+      //   - then fetch questions (read-only) once live
+      const j = await this.joinDuel(code)
+      if (j?.duel?.status === 'live') {
+        const q = await this.getDuelQuestions(code)
+        return { ...j, questions: q?.questions || q?.data?.questions || [] }
+      }
+      return j
     },
 
     async submitDuel({ code, answers = {}, secondsTotal = 0 } = {}) {

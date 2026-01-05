@@ -84,7 +84,13 @@ onMounted(async () => {
   error.value = ''
   loading.value = true
   try {
-    const res = await data.startDuel(code.value)
+    // Ensure I'm joined (side effect) then fetch questions (read-only)
+    const joined = await data.joinDuel(code.value)
+    if (joined?.duel?.status !== 'live') {
+      router.replace(`/duel/${code.value}`)
+      return
+    }
+    const res = await data.getDuelQuestions(code.value)
     if (res?.duel?.status !== 'live') {
       router.replace(`/duel/${code.value}`)
       return
