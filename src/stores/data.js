@@ -318,7 +318,11 @@ export const useDataStore = defineStore('data', {
     },
 
     async toggleNotifyFollow(channelId, follow = null) {
-      const res = await apiFetch('/notify/follow', { method: 'POST', body: { channelId, follow } })
+      // NOTE: when `follow` is null we MUST omit the key entirely.
+      // If we send { follow: null }, PHP casts (bool)null to false and the server will treat it as "unfollow".
+      const body = { channelId }
+      if (follow !== null) body.follow = follow
+      const res = await apiFetch('/notify/follow', { method: 'POST', body })
       const isFollowed = !!res?.data?.isFollowed
 
       // optimistic local update (keeps UI snappy even before next refresh)
