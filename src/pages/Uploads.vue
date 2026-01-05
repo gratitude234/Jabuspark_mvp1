@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
-import { apiFetch } from '../utils/api'
+import { apiFetch, resolveFileUrl } from '../utils/api'
 
 import AppCard from '../components/AppCard.vue'
 import AppSelect from '../components/AppSelect.vue'
@@ -146,7 +146,6 @@ function onPickFile(kind, evt) {
     error.value = `File too large (${bytesLabel(f.size)}). Max is ${bytesLabel(MAX_BYTES)}.`
     fileRef.value = null
 
-    // clear the actual input so user can re-select same file and re-trigger change
     if (inputEl && typeof inputEl.value !== 'undefined') inputEl.value = ''
     clearFileInput(kind)
     return
@@ -363,8 +362,12 @@ async function deleteItem(kind, item) {
   }
 }
 
+/**
+ * ✅ FIX: always convert stored relative paths to an absolute backend URL
+ */
 function viewUrl(item) {
-  return item?.url || item?.fileUrl || item?.file_url || item?.path || ''
+  const raw = item?.url || item?.fileUrl || item?.file_url || item?.path || ''
+  return resolveFileUrl(raw)
 }
 
 // ---- Lifecycle ----
