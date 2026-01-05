@@ -9,6 +9,38 @@ export const API_BASE =
   (typeof window !== 'undefined' && window.__JABUSPARK_API_BASE__) ||
   'https://jabumarket.com.ng/api'
 
+/**
+ * Files base (where uploaded PDFs/images live).
+ *
+ * Why this exists:
+ * If your backend returns a relative path like "/uploads/materials/abc.pdf",
+ * and your frontend is hosted on Vercel, then opening that path will hit Vercel
+ * (which will often serve your SPA index.html) instead of the real PDF.
+ */
+export const FILES_BASE =
+  (import.meta?.env?.VITE_FILES_BASE || '') ||
+  (typeof window !== 'undefined' && window.__JABUSPARK_FILES_BASE__) ||
+  String(API_BASE).replace(/\/?api\/?$/i, '')
+
+export function resolveFileUrl(input) {
+  const v = String(input || '').trim()
+  if (!v) return ''
+
+  // Already absolute or special URL
+  if (/^(https?:)?\/\//i.test(v) || /^data:|^blob:/i.test(v)) return v
+
+  // Keep local demo assets working (served by the frontend)
+  if (v.startsWith('/sample/')) return v
+
+  // If it's an uploads/storage path, resolve against FILES_BASE
+  if (v.startsWith('/uploads/') || v.startsWith('/storage/') || v.startsWith('/files/')) {
+    return joinUrl(FILES_BASE, v)
+  }
+
+  // Otherwise, try to resolve as a relative file path on the backend.
+  return joinUrl(FILES_BASE, v)
+}
+
 function joinUrl(base, path) {
   const b = String(base || '').replace(/\/+$/, '')
   const p = String(path || '').replace(/^\/+/, '')
@@ -64,10 +96,8 @@ export async function apiFetch(path, { method = 'GET', body = null, headers = {}
   const data = await readJsonSafe(res)
 
   if (res.status === 401) {
-    // session expired or invalid token -> clear local auth
     storage.remove('token')
     storage.remove('user')
-    // let the app react (router guard will send them to login)
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('auth:expired'))
     }

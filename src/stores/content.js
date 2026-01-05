@@ -1,10 +1,15 @@
 import { defineStore } from 'pinia'
-import { apiFetch } from '../utils/api'
+import { apiFetch, resolveFileUrl } from '../utils/api'
+
+function normalizeDoc(item) {
+  const url = item?.fileUrl || item?.url || item?.file_url || item?.path || ''
+  return { ...item, fileUrl: resolveFileUrl(url) }
+}
 
 export const useContentStore = defineStore('content', {
   state: () => ({
     banks: [],
-    bank: null, // active bank with questions
+    bank: null,
     pastQuestions: [],
     materials: [],
     loading: {
@@ -35,7 +40,6 @@ export const useContentStore = defineStore('content', {
       try {
         const res = await apiFetch(`/banks/${encodeURIComponent(bankId)}`)
         const bank = res?.data?.bank || null
-        // Normalize question shape (backend may send legacy prompt/explain)
         if (bank?.questions?.length) {
           bank.questions = bank.questions.map((q) => ({
             ...q,
@@ -58,7 +62,7 @@ export const useContentStore = defineStore('content', {
       try {
         const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : ''
         const res = await apiFetch(`/pastquestions${qs}`)
-        this.pastQuestions = res?.data?.pastQuestions || []
+        this.pastQuestions = (res?.data?.pastQuestions || []).map(normalizeDoc)
       } catch (e) {
         this.error = e?.message || 'Failed to load past questions'
         this.pastQuestions = []
@@ -72,7 +76,7 @@ export const useContentStore = defineStore('content', {
       try {
         const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : ''
         const res = await apiFetch(`/materials${qs}`)
-        this.materials = res?.data?.materials || []
+        this.materials = (res?.data?.materials || []).map(normalizeDoc)
       } catch (e) {
         this.error = e?.message || 'Failed to load materials'
         this.materials = []
