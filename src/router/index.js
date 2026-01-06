@@ -5,6 +5,7 @@ import AuthLayout from '../layouts/AuthLayout.vue'
 import AppShell from '../layouts/AppShell.vue'
 
 import Login from '../pages/Login.vue'
+import ForgotPassword from '../pages/ForgotPassword.vue'
 import OnboardingStart from '../pages/OnboardingStart.vue'
 import OnboardingDepartment from '../pages/Onboarding.vue'
 import OnboardingGns from '../pages/OnboardingGns.vue'
@@ -63,6 +64,7 @@ const routes = [
     component: AuthLayout,
     children: [
       { path: 'login', component: Login, meta: { title: 'Login' } },
+      { path: 'forgot', component: ForgotPassword, meta: { title: 'Reset Password' } },
     ],
   },
   {

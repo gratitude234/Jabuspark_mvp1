@@ -88,6 +88,8 @@
 
   .btn-primary { @apply bg-accent text-surface border-transparent hover:bg-accent-2 shadow-glow; }
   .btn-ghost { @apply bg-white/[0.02] hover:bg-white/[0.06] text-text; }
+  /* Outline: transparent surface with a clearer border (great for secondary actions) */
+  .btn-outline { @apply bg-transparent text-text border-white/15 hover:bg-white/[0.04] hover:border-white/25; }
   .btn-danger { @apply bg-danger text-white border-transparent hover:bg-danger/90; }
 
   .btn-sm { @apply px-3 py-2 text-sm min-h-[40px]; }

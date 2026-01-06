@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  variant: { type: String, default: 'primary' }, // primary | ghost | danger
+  variant: { type: String, default: 'primary' }, // primary | ghost | outline | danger
   size: { type: String, default: 'md' }, // sm | md | lg
   as: { type: String, default: 'button' },
   disabled: { type: Boolean, default: false },
@@ -12,6 +12,7 @@ const props = defineProps({
 const variantClass = computed(() => {
   if (props.variant === 'danger') return 'btn-danger'
   if (props.variant === 'ghost') return 'btn-ghost'
+  if (props.variant === 'outline') return 'btn-outline'
   return 'btn-primary'
 })
 

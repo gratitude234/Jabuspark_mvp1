@@ -123,12 +123,12 @@ onBeforeUnmount(() => stopPolling())
       <div v-if="error" class="alert alert-danger mt-4">{{ error }}</div>
 
       <div class="mt-6 grid gap-3">
-        <div class="rounded-xl border border-base-200 p-4">
+        <div class="panel p-4">
           <div class="text-sm font-semibold">Players</div>
           <div class="mt-3 grid gap-2">
             <div v-for="p in participants" :key="p.userId" class="flex items-center justify-between">
               <div class="flex items-center gap-2">
-                <div class="h-8 w-8 rounded-full bg-base-200 flex items-center justify-center text-sm font-semibold">
+                <div class="h-9 w-9 rounded-full bg-white/[0.04] border border-stroke/60 grid place-items-center text-sm font-extrabold">
                   {{ (p.fullName || '?').slice(0, 1).toUpperCase() }}
                 </div>
                 <div>
@@ -148,7 +148,7 @@ onBeforeUnmount(() => stopPolling())
           </div>
         </div>
 
-        <div class="rounded-xl border border-base-200 p-4">
+        <div class="panel p-4">
           <div class="text-sm font-semibold">How it works</div>
           <ul class="mt-2 list-disc pl-5 text-sm text-text-2 space-y-1">
             <li>Both players answer the same questions.</li>
@@ -178,14 +178,3 @@ onBeforeUnmount(() => stopPolling())
     </AppCard>
   </div>
 </template>
-
-<style scoped>
-.badge{
-  display:inline-flex;
-  align-items:center;
-  gap:.25rem;
-  padding:2px 8px;
-  border-radius:999px;
-  background:rgba(0,0,0,.06);
-}
-</style>

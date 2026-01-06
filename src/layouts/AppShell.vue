@@ -124,6 +124,14 @@ watch(
 <template>
   <!-- Bottom padding accounts for fixed mobile nav + iOS safe-area -->
   <div class="min-h-dvh pb-[calc(86px+env(safe-area-inset-bottom))] sm:pb-0">
+    <!-- Accessibility: Skip link for keyboard users -->
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 btn btn-ghost btn-sm"
+    >
+      Skip to content
+    </a>
+
     <!-- Top bar (quieter / premium) -->
     <header class="sticky top-0 z-40 border-b border-stroke/70 bg-surface/70 backdrop-blur-xl">
       <div class="container-app h-14 flex items-center justify-between gap-3">
@@ -246,7 +254,7 @@ watch(
     </header>
 
     <!-- Main -->
-    <div class="container-app py-5 sm:py-7">
+    <div id="main" tabindex="-1" class="container-app py-5 sm:py-7">
       <RouterView />
     </div>
 

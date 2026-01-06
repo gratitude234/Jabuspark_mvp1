@@ -133,7 +133,12 @@ onBeforeUnmount(() => {
 
       <div v-if="error" class="alert alert-danger mt-4">{{ error }}</div>
 
-      <div v-if="loading" class="mt-6 text-sm text-text-3">Loading…</div>
+      <div v-if="loading" class="mt-6 grid gap-2" role="status" aria-live="polite">
+        <div class="skeleton h-4 w-32" />
+        <div class="skeleton h-14" />
+        <div class="skeleton h-12" />
+        <div class="skeleton h-12" />
+      </div>
 
       <div v-else class="mt-6">
         <div class="text-sm text-text-3">Question {{ qIndex + 1 }}</div>
@@ -143,12 +148,18 @@ onBeforeUnmount(() => {
           <button
             v-for="(opt, idx) in (current?.options || [])"
             :key="idx"
-            class="opt"
-            :class="answers[current?.id] === idx ? 'opt--active' : ''"
+            type="button"
+            class="card card-press card-pad text-left flex gap-3 items-start"
+            :class="answers[current?.id] === idx ? 'ring-1 ring-accent/40 bg-white/[0.05]' : ''"
             @click="pick(idx)"
           >
-            <span class="opt__idx">{{ String.fromCharCode(65 + idx) }}</span>
-            <span class="opt__text">{{ opt }}</span>
+            <span
+              class="h-7 w-7 rounded-lg bg-white/[0.04] border border-stroke/60 grid place-items-center text-xs font-extrabold text-text-2 shrink-0"
+              aria-hidden="true"
+            >
+              {{ String.fromCharCode(65 + idx) }}
+            </span>
+            <span class="text-sm leading-relaxed">{{ opt }}</span>
           </button>
         </div>
 
@@ -167,26 +178,3 @@ onBeforeUnmount(() => {
     </AppCard>
   </div>
 </template>
-
-<style scoped>
-.opt{
-  display:flex;
-  gap:.75rem;
-  align-items:flex-start;
-  width:100%;
-  text-align:left;
-  padding:12px 14px;
-  border:1px solid rgba(0,0,0,.12);
-  border-radius:14px;
-  background:transparent;
-}
-.opt--active{
-  border-color:rgba(0,0,0,.35);
-  background:rgba(0,0,0,.04);
-}
-.opt__idx{
-  font-weight:700;
-  min-width:20px;
-}
-.opt__text{ line-height:1.35; }
-</style>
