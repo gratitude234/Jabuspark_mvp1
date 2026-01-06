@@ -1,0 +1,967 @@
+<script setup>
+import { computed, onMounted, ref, watch } from 'vue'
+import { useAuthStore } from '../stores/auth'
+import { useCatalogStore } from '../stores/catalog'
+import { API_BASE, apiFetch, resolveFileUrl } from '../utils/api'
+import { storage } from '../utils/storage'
+
+import AppCard from '../components/AppCard.vue'
+import AppSelect from '../components/AppSelect.vue'
+import AppButton from '../components/AppButton.vue'
+
+const auth = useAuthStore()
+const catalog = useCatalogStore()
+
+const role = computed(() => auth.user?.role || 'student')
+const uploadsDisabled = computed(() => {
+  const u = auth.user || {}
+  const p = u.profile || {}
+  return !!(u.uploadsDisabled ?? u.uploads_disabled ?? p.uploadsDisabled ?? p.uploads_disabled)
+})
+const meId = computed(() => String(auth.user?.id || ''))
+
+const repCourseIds = computed(() => {
+  const u = auth.user || {}
+  const p = u.profile || {}
+  const v = p.repCourseIds ?? p.rep_course_ids ?? u.repCourseIds ?? u.rep_course_ids ?? []
+  return Array.isArray(v) ? v.map(x => String(x)) : []
+})
+
+// ---- state ----
+const busy = ref(false)
+const error = ref('')
+const ok = ref('')
+
+// Tabs
+const uploadTab = ref('past') // 'past' | 'materials'
+const manageTab = ref('past') // 'past' | 'materials'
+
+// Course selection
+const courseId = ref('')
+const filterCourseId = ref('')
+
+// Form state (Past Questions)
+const pqTitle = ref('')
+const pqSession = ref('')
+const pqSemester = ref('')
+const pqFile = ref(null)
+const pqFiles = ref([]) // bulk
+const pqBulk = ref(false)
+const pqFileInput = ref(null) // <input type="file" ref>
+const pqBulkStatus = ref([]) // [{ name, size, progress, state, message, file }]
+
+// Form state (Materials)
+const mTitle = ref('')
+const mType = ref('pdf')
+const mTags = ref('')
+const mFile = ref(null)
+const mFileInput = ref(null) // <input type="file" ref>
+
+// Lists
+const listBusy = ref(false)
+const listError = ref('')
+const pastItems = ref([])
+const materialItems = ref([])
+
+// Inline edit model
+const edit = ref(null)
+
+const MAX_BYTES = 50 * 1024 * 1024
+
+function bytesLabel(n) {
+  if (!n || Number.isNaN(Number(n))) return ''
+  const mb = Number(n) / (1024 * 1024)
+  return `${mb.toFixed(mb >= 10 ? 0 : 1)}MB`
+}
+
+function qs(params) {
+  const sp = new URLSearchParams()
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v === null || v === undefined) return
+    const s = String(v)
+    if (!s.trim()) return
+    sp.set(k, s)
+  })
+  const str = sp.toString()
+  return str ? `?${str}` : ''
+}
+
+function normalizeItems(res) {
+  if (Array.isArray(res)) return res
+  if (Array.isArray(res?.data?.items)) return res.data.items
+  if (Array.isArray(res?.items)) return res.items
+  if (Array.isArray(res?.data)) return res.data
+  return []
+}
+
+const canAccessUploads = computed(() => (role.value === 'admin' || role.value === 'course_rep') && !uploadsDisabled.value)
+
+const courseOptions = computed(() => {
+  const all = (catalog.courses || []).map(c => ({
+    value: String(c.id),
+    label: `${c.code} — ${c.title} (${c.level})`,
+  }))
+  if (role.value === 'admin') return all
+  const allowed = new Set(repCourseIds.value)
+  return all.filter(c => allowed.has(String(c.value)))
+})
+
+// Course labels
+const courseById = computed(() => new Map((catalog.courses || []).map(c => [String(c.id), c])))
+function labelCourse(id) {
+  const c = courseById.value.get(String(id))
+  return c ? c.code : String(id || '')
+}
+
+const hasAnyAllowedCourse = computed(() => courseOptions.value.length > 0)
+
+function ensureValidCourseSelection() {
+  const allowed = new Set(courseOptions.value.map(o => String(o.value)))
+  if (!allowed.size) {
+    courseId.value = ''
+    if (filterCourseId.value) filterCourseId.value = ''
+    return
+  }
+  if (!courseId.value || !allowed.has(String(courseId.value))) {
+    courseId.value = String(courseOptions.value[0].value)
+  }
+  if (!filterCourseId.value) filterCourseId.value = courseId.value
+}
+
+function resetUploadMessages() {
+  error.value = ''
+  ok.value = ''
+}
+
+function resetManageMessages() {
+  listError.value = ''
+}
+
+function clearFileInput(kind) {
+  const el = kind === 'past' ? pqFileInput.value : mFileInput.value
+  if (el && typeof el.value !== 'undefined') el.value = ''
+}
+
+function stripExt(name) {
+  const s = String(name || '')
+  return s.replace(/\.[^/.]+$/, '')
+}
+
+function joinPath(base, path) {
+  const b = String(base || '').replace(/\/+$/, '')
+  const p = String(path || '').replace(/^\/+/, '')
+  return `${b}/${p}`
+}
+
+function xhrUpload(path, formData, onProgress) {
+  const url = joinPath(API_BASE, path)
+  const token = storage.get('token', null)
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', url, true)
+    xhr.setRequestHeader('Accept', 'application/json')
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+
+    xhr.upload.onprogress = (evt) => {
+      if (!evt || !evt.lengthComputable) return
+      const pct = Math.max(0, Math.min(100, Math.round((evt.loaded / evt.total) * 100)))
+      if (typeof onProgress === 'function') onProgress(pct)
+    }
+
+    xhr.onerror = () => {
+      reject(new Error('Network error. Check your internet or API base URL.'))
+    }
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState !== 4) return
+      let data = null
+      const text = xhr.responseText || ''
+      try {
+        data = text ? JSON.parse(text) : null
+      } catch {
+        data = null
+      }
+
+      if (xhr.status === 401) {
+        storage.remove('token')
+        storage.remove('user')
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('auth:expired'))
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data)
+      else {
+        const msg = (data && (data.error || data.message)) || `Upload failed (${xhr.status || 0})`
+        reject(new Error(msg))
+      }
+    }
+
+    xhr.send(formData)
+  })
+}
+
+function onPickFile(kind, evt) {
+  const inputEl = evt?.target
+  const f = inputEl?.files?.[0] || null
+
+  const fileRef = kind === 'past' ? pqFile : mFile
+
+  if (!f) {
+    fileRef.value = null
+    return
+  }
+
+  if (f.size > MAX_BYTES) {
+    error.value = `File too large (${bytesLabel(f.size)}). Max is ${bytesLabel(MAX_BYTES)}.`
+    fileRef.value = null
+
+    if (inputEl && typeof inputEl.value !== 'undefined') inputEl.value = ''
+    clearFileInput(kind)
+    return
+  }
+
+  fileRef.value = f
+}
+
+function onPickPast(e) {
+  const inputEl = e?.target
+  const files = Array.from(inputEl?.files || [])
+
+  if (pqBulk.value) {
+    // bulk: validate every file
+    const tooBig = files.find(f => f?.size > MAX_BYTES)
+    if (tooBig) {
+      error.value = `File too large (${bytesLabel(tooBig.size)}). Max is ${bytesLabel(MAX_BYTES)}.`
+      pqFiles.value = []
+      pqFile.value = null
+      if (inputEl && typeof inputEl.value !== 'undefined') inputEl.value = ''
+      clearFileInput('past')
+      return
+    }
+    pqFiles.value = files
+    pqBulkStatus.value = files.map(f => ({
+      name: f?.name || 'file',
+      size: Number(f?.size || 0),
+      progress: 0,
+      state: 'pending', // pending | uploading | done | error
+      message: '',
+      file: f,
+    }))
+    pqFile.value = null
+    return
+  }
+
+  pqFiles.value = []
+  pqBulkStatus.value = []
+  onPickFile('past', e)
+}
+function onPickMaterial(e) {
+  onPickFile('materials', e)
+}
+
+// ---- Upload handlers ----
+
+async function uploadPastQuestion() {
+  resetUploadMessages()
+  if (!canAccessUploads.value) return (error.value = 'You do not have upload access yet. Request course-rep access first.')
+  if (!courseId.value) return (error.value = 'Choose a course first.')
+  if (pqBulk.value) {
+    if (!pqFiles.value.length) return (error.value = 'Select one or more files to upload.')
+    // ✅ Per-file progress UX: upload each file individually
+    // (this gives true per-file progress and clear per-file errors).
+    const prefix = String(pqTitle.value || '').trim()
+
+    // Ensure we have status objects (in case user toggled the checkbox after selection)
+    if (!pqBulkStatus.value.length || pqBulkStatus.value.length !== pqFiles.value.length) {
+      pqBulkStatus.value = pqFiles.value.map(f => ({
+        name: f?.name || 'file',
+        size: Number(f?.size || 0),
+        progress: 0,
+        state: 'pending',
+        message: '',
+        file: f,
+      }))
+    }
+
+    busy.value = true
+    let uploaded = 0
+    let failed = 0
+
+    try {
+      for (const s of pqBulkStatus.value) {
+        const f = s.file
+        if (!f) continue
+
+        s.state = 'uploading'
+        s.progress = 0
+        s.message = ''
+
+        const base = stripExt(f.name).replace(/[_-]+/g, ' ').trim()
+        const title = `${prefix} ${base}`.trim() || base || 'Past question'
+
+        const fd = new FormData()
+        fd.append('courseId', String(courseId.value))
+        fd.append('title', title)
+        if (pqSession.value.trim()) fd.append('session', pqSession.value.trim())
+        if (pqSemester.value.trim()) fd.append('semester', pqSemester.value.trim())
+        fd.append('file', f)
+
+        try {
+          await xhrUpload('/pastquestions', fd, (pct) => {
+            s.progress = pct
+          })
+          s.state = 'done'
+          s.progress = 100
+          uploaded += 1
+        } catch (e) {
+          s.state = 'error'
+          s.message = e?.message || 'Upload failed.'
+          failed += 1
+        }
+      }
+
+      ok.value = `Uploaded ${uploaded} file${uploaded === 1 ? '' : 's'}${failed ? ` (${failed} failed)` : ''}.`
+
+      // Keep failed files selected for quick retry; clear all if everything succeeded.
+      if (failed) {
+        const failedStatuses = pqBulkStatus.value.filter(x => x.state === 'error')
+        pqBulkStatus.value = failedStatuses
+        pqFiles.value = failedStatuses.map(x => x.file).filter(Boolean)
+      } else {
+        pqTitle.value = ''
+        pqSession.value = ''
+        pqSemester.value = ''
+        pqFiles.value = []
+        pqBulkStatus.value = []
+        pqFile.value = null
+        clearFileInput('past')
+      }
+
+      await loadMine()
+    } catch (e) {
+      error.value = e?.message || 'Bulk upload failed.'
+    } finally {
+      busy.value = false
+    }
+    return
+  }
+
+  if (!pqTitle.value.trim()) return (error.value = 'Past question title is required.')
+  if (!pqFile.value) return (error.value = 'Select a file to upload.')
+
+  const fd = new FormData()
+  fd.append('courseId', String(courseId.value))
+  fd.append('title', pqTitle.value.trim())
+  if (pqSession.value.trim()) fd.append('session', pqSession.value.trim())
+  if (pqSemester.value.trim()) fd.append('semester', pqSemester.value.trim())
+  fd.append('file', pqFile.value)
+
+  busy.value = true
+  try {
+    await apiFetch('/pastquestions', { method: 'POST', body: fd })
+    ok.value = 'Past question uploaded successfully.'
+    pqTitle.value = ''
+    pqSession.value = ''
+    pqSemester.value = ''
+    pqFile.value = null
+    clearFileInput('past')
+    await loadMine()
+  } catch (e) {
+    error.value = e?.message || 'Upload failed.'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function uploadMaterial() {
+  resetUploadMessages()
+  if (!canAccessUploads.value) return (error.value = 'You do not have upload access yet. Request course-rep access first.')
+  if (!courseId.value) return (error.value = 'Choose a course first.')
+  if (!mTitle.value.trim()) return (error.value = 'Material title is required.')
+  if (!mFile.value) return (error.value = 'Select a file to upload.')
+
+  const fd = new FormData()
+  fd.append('courseId', String(courseId.value))
+  fd.append('title', mTitle.value.trim())
+  fd.append('type', mType.value || 'pdf')
+  const tags = String(mTags.value || '')
+    .split(',')
+    .map(t => t.trim())
+    .filter(Boolean)
+  if (tags.length) fd.append('tags', JSON.stringify(tags))
+  fd.append('file', mFile.value)
+
+  busy.value = true
+  try {
+    await apiFetch('/materials', { method: 'POST', body: fd })
+    ok.value = 'Material uploaded successfully.'
+    mTitle.value = ''
+    mType.value = 'pdf'
+    mTags.value = ''
+    mFile.value = null
+    clearFileInput('materials')
+    await loadMine()
+  } catch (e) {
+    error.value = e?.message || 'Upload failed.'
+  } finally {
+    busy.value = false
+  }
+}
+
+// ---- Manage uploads ----
+
+async function fetchMinePast() {
+  const cid = filterCourseId.value || ''
+  try {
+    const res = await apiFetch(`/uploader/pastquestions${qs({ courseId: cid })}`)
+    return normalizeItems(res)
+  } catch {
+    const res2 = await apiFetch(`/pastquestions${qs({ mine: 1, courseId: cid })}`)
+    return normalizeItems(res2)
+  }
+}
+
+async function fetchMineMaterials() {
+  const cid = filterCourseId.value || ''
+  try {
+    const res = await apiFetch(`/uploader/materials${qs({ courseId: cid })}`)
+    return normalizeItems(res)
+  } catch {
+    const res2 = await apiFetch(`/materials${qs({ mine: 1, courseId: cid })}`)
+    return normalizeItems(res2)
+  }
+}
+
+async function loadMine() {
+  resetManageMessages()
+  listBusy.value = true
+  try {
+    const [pq, m] = await Promise.all([fetchMinePast(), fetchMineMaterials()])
+    pastItems.value = pq
+    materialItems.value = m
+  } catch (e) {
+    listError.value = e?.message || 'Failed to load uploads.'
+  } finally {
+    listBusy.value = false
+  }
+}
+
+function startEdit(kind, item) {
+  if (!item) return
+  if (kind === 'past') {
+    edit.value = {
+      kind,
+      id: item.id,
+      title: item.title || '',
+      session: item.session || '',
+      semester: item.semester || '',
+    }
+  } else {
+    edit.value = {
+      kind,
+      id: item.id,
+      title: item.title || '',
+      type: item.type || 'pdf',
+      tags: Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags ? String(item.tags) : ''),
+    }
+  }
+}
+
+function canManageItem(item) {
+  if (role.value === 'admin') return true
+  const createdBy =
+    item?.createdBy ?? item?.created_by ?? item?.uploaderId ?? item?.uploader_id ?? item?.userId ?? item?.user_id ?? null
+  if (createdBy === null || createdBy === undefined) return true
+  return String(createdBy) === meId.value
+}
+
+async function saveEdit() {
+  if (!edit.value) return
+  resetManageMessages()
+
+  if (!String(edit.value.title || '').trim()) {
+    listError.value = 'Title is required.'
+    return
+  }
+
+  try {
+    if (edit.value.kind === 'past') {
+      await apiFetch('/pastquestions', {
+        method: 'PATCH',
+        body: {
+          id: edit.value.id,
+          title: String(edit.value.title || '').trim(),
+          session: String(edit.value.session || '').trim(),
+          semester: String(edit.value.semester || '').trim(),
+        },
+      })
+    } else {
+      const tags = String(edit.value.tags || '')
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean)
+
+      await apiFetch('/materials', {
+        method: 'PATCH',
+        body: {
+          id: edit.value.id,
+          title: String(edit.value.title || '').trim(),
+          type: edit.value.type || 'pdf',
+          tags,
+        },
+      })
+    }
+
+    edit.value = null
+    await loadMine()
+  } catch (e) {
+    const msg = e?.message || 'Update failed.'
+    if (/method not allowed|405/i.test(msg)) listError.value = 'Editing is not available yet (API PATCH endpoint not enabled).'
+    else listError.value = msg
+  }
+}
+
+async function deleteItem(kind, item) {
+  if (!item) return
+  if (!canManageItem(item)) {
+    listError.value = 'You can only manage your own uploads.'
+    return
+  }
+  if (!confirm('Delete this upload? This cannot be undone.')) return
+
+  resetManageMessages()
+  try {
+    const endpoint = kind === 'past' ? '/pastquestions' : '/materials'
+    await apiFetch(`${endpoint}?id=${encodeURIComponent(item.id)}`, { method: 'DELETE' })
+    await loadMine()
+  } catch (e) {
+    const msg = e?.message || 'Delete failed.'
+    if (/forbidden|403/i.test(msg)) listError.value = 'You do not have permission to delete this item.'
+    else listError.value = msg
+  }
+}
+
+/**
+ * ✅ FIX: always convert stored relative paths to an absolute backend URL
+ */
+function viewUrl(item) {
+  const raw = item?.url || item?.fileUrl || item?.file_url || item?.path || ''
+  return resolveFileUrl(raw)
+}
+
+// ---- Lifecycle ----
+onMounted(async () => {
+  await catalog.fetchCourses({})
+  ensureValidCourseSelection()
+  await loadMine()
+})
+
+watch(courseOptions, () => {
+  ensureValidCourseSelection()
+})
+
+watch(courseId, (next) => {
+  if (!filterCourseId.value && next) filterCourseId.value = next
+})
+
+watch(filterCourseId, () => {
+  loadMine()
+})
+</script>
+
+<template>
+  <div class="page">
+    <!-- Header -->
+    <AppCard>
+      <div class="row">
+        <div class="min-w-0">
+          <div class="h1">Uploads</div>
+          <p class="sub mt-1">
+            Upload past questions and materials. Course reps are restricted to their assigned courses.
+          </p>
+        </div>
+        <RouterLink to="/profile" class="btn btn-ghost">Back</RouterLink>
+      </div>
+
+      <div class="divider my-4" />
+
+      <div v-if="!canAccessUploads" class="alert alert-danger" role="alert">
+        You don’t have upload access yet. Request course-rep access from your Profile page.
+        <div class="mt-3">
+          <RouterLink to="/rep/request" class="btn btn-ghost">Request upload access</RouterLink>
+        </div>
+      </div>
+
+      <div v-else>
+        <div v-if="!hasAnyAllowedCourse" class="alert alert-danger" role="alert">
+          No assigned courses found for your account yet.
+          <div class="mt-2 text-xs text-text-3">
+            If you were just approved, refresh your profile or contact an admin to assign courses.
+          </div>
+        </div>
+
+        <div v-else>
+          <label class="label" for="coursePick">Course</label>
+          <AppSelect
+            id="coursePick"
+            v-model="courseId"
+            :options="courseOptions"
+            placeholder="Select course…"
+          />
+          <p v-if="role !== 'admin'" class="help">You can only upload to assigned courses.</p>
+        </div>
+
+        <div v-if="ok" class="alert alert-ok mt-4" role="status">{{ ok }}</div>
+        <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
+      </div>
+    </AppCard>
+
+    <!-- Upload area -->
+    <AppCard v-if="canAccessUploads && hasAnyAllowedCourse">
+      <div class="row">
+        <div>
+          <div class="h2">Upload</div>
+          <p class="sub mt-1">Choose what you want to upload.</p>
+        </div>
+      </div>
+
+      <div class="divider my-4" />
+
+      <div class="seg">
+        <button
+          class="seg-btn"
+          :class="uploadTab === 'past' ? 'seg-btn--active' : 'seg-btn--inactive'"
+          @click="uploadTab = 'past'"
+        >Past question</button>
+        <button
+          class="seg-btn"
+          :class="uploadTab === 'materials' ? 'seg-btn--active' : 'seg-btn--inactive'"
+          @click="uploadTab = 'materials'"
+        >Material</button>
+      </div>
+
+      <!-- Past questions -->
+      <div v-if="uploadTab === 'past'" class="mt-4">
+        <div class="h3">Past question</div>
+        <p class="sub mt-1">PDF or image scans. Add session and semester if available.</p>
+
+        <div class="divider my-4" />
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="sm:col-span-2">
+            <label class="label">Upload mode</label>
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" v-model="pqBulk" />
+              <span>Bulk upload (upload multiple files at once)</span>
+            </label>
+            <p class="help mt-1">
+              In bulk mode, each file title is taken from its filename. You can optionally add a title prefix.
+            </p>
+          </div>
+
+          <div>
+            <label class="label">{{ pqBulk ? 'Title prefix (optional)' : 'Title' }}</label>
+            <input v-model="pqTitle" class="input" :placeholder="pqBulk ? 'e.g., CSC 201' : 'e.g., CSC 201 Exam'" />
+            <p v-if="pqBulk" class="help">Example: "CSC 201" + filename "2019 Exam" → "CSC 201 2019 Exam".</p>
+          </div>
+
+          <div>
+            <label class="label">File</label>
+            <input
+              ref="pqFileInput"
+              type="file"
+              class="input"
+              accept=".pdf,.png,.jpg,.jpeg,.webp"
+              :multiple="pqBulk"
+              @change="onPickPast"
+            />
+            <p class="help">Max {{ bytesLabel(MAX_BYTES) }} each. Accepts PDF / images.</p>
+            <p v-if="pqBulk && pqFiles.length" class="help">Selected: {{ pqFiles.length }} file(s)</p>
+          </div>
+
+          <div v-if="pqBulk && pqBulkStatus.length" class="sm:col-span-2">
+            <label class="label">Upload queue</label>
+            <div class="grid gap-2">
+              <div v-for="(s, idx) in pqBulkStatus" :key="s.name + ':' + idx" class="card card-pad">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="font-semibold truncate">{{ s.name }}</div>
+                    <div class="text-xs text-text-3 mt-1">
+                      {{ bytesLabel(s.size) }}
+                      <span class="text-text-3">•</span>
+                      <span v-if="s.state === 'pending'" class="badge">Pending</span>
+                      <span v-else-if="s.state === 'uploading'" class="badge">Uploading…</span>
+                      <span v-else-if="s.state === 'done'" class="badge">Done</span>
+                      <span v-else class="badge">Failed</span>
+                    </div>
+                    <div v-if="s.message" class="text-xs text-red-300 mt-1">{{ s.message }}</div>
+                  </div>
+
+                  <div class="w-40 shrink-0">
+                    <div class="h-2 rounded-full bg-white/10 overflow-hidden">
+                      <div class="h-full bg-accent transition-all duration-200" :style="{ width: (s.progress || 0) + '%' }" />
+                    </div>
+                    <div class="text-xs text-text-3 mt-1 text-right">{{ s.progress || 0 }}%</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="label">Session (optional)</label>
+            <input v-model="pqSession" class="input" placeholder="e.g., 2023/2024" />
+          </div>
+
+          <div>
+            <label class="label">Semester (optional)</label>
+            <input v-model="pqSemester" class="input" placeholder="First / Second" />
+          </div>
+        </div>
+
+        <div class="mt-5">
+          <AppButton :disabled="busy" @click="uploadPastQuestion">
+            <span v-if="!busy">Upload past question</span>
+            <span v-else>Uploading…</span>
+          </AppButton>
+        </div>
+      </div>
+
+      <!-- Materials -->
+      <div v-else class="mt-4">
+        <div class="h3">Material</div>
+        <p class="sub mt-1">Lecture notes, handouts, PDFs.</p>
+
+        <div class="divider my-4" />
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="label">Title</label>
+            <input v-model="mTitle" class="input" placeholder="e.g., GST 211 Lecture 3" />
+          </div>
+
+          <div>
+            <label class="label">File</label>
+            <input
+              ref="mFileInput"
+              type="file"
+              class="input"
+              accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+              @change="onPickMaterial"
+            />
+            <p class="help">Max {{ bytesLabel(MAX_BYTES) }}.</p>
+          </div>
+
+          <div>
+            <label class="label">Type</label>
+            <AppSelect
+              id="materialTypePick"
+              v-model="mType"
+              :options="[
+                { value: 'pdf', label: 'PDF' },
+                { value: 'image', label: 'Image' },
+                { value: 'doc', label: 'DOC' }
+              ]"
+            />
+          </div>
+
+          <div>
+            <label class="label">Tags (comma separated)</label>
+            <input v-model="mTags" class="input" placeholder="e.g., revision, week 3" />
+          </div>
+        </div>
+
+        <div class="mt-5">
+          <AppButton :disabled="busy" @click="uploadMaterial">
+            <span v-if="!busy">Upload material</span>
+            <span v-else>Uploading…</span>
+          </AppButton>
+        </div>
+      </div>
+    </AppCard>
+
+    <!-- Manage uploads -->
+    <AppCard>
+      <div class="row">
+        <div>
+          <div class="h2">Manage uploads</div>
+          <p class="sub mt-1">
+            View what you’ve uploaded. Editing/deleting depends on your permissions (admins can manage any upload).
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost" :disabled="listBusy" @click="loadMine">Refresh</button>
+        </div>
+      </div>
+
+      <div class="divider my-4" />
+
+      <div class="grid gap-3 sm:grid-cols-3">
+        <div class="sm:col-span-1">
+          <label class="label">Filter by course</label>
+          <AppSelect
+            id="manageCourseFilterPick"
+            v-model="filterCourseId"
+            :options="[{ value: '', label: 'All courses' }, ...courseOptions]"
+            placeholder="All courses"
+          />
+          <p class="help mt-1">Tip: pick a course to narrow your list.</p>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="label">Type</label>
+          <div class="seg">
+            <button
+              class="seg-btn"
+              :class="manageTab === 'past' ? 'seg-btn--active' : 'seg-btn--inactive'"
+              @click="manageTab = 'past'"
+            >Past questions</button>
+            <button
+              class="seg-btn"
+              :class="manageTab === 'materials' ? 'seg-btn--active' : 'seg-btn--inactive'"
+              @click="manageTab = 'materials'"
+            >Materials</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="listError" class="alert alert-danger mt-4" role="alert">{{ listError }}</div>
+      <div v-if="listBusy" class="sub mt-4">Loading…</div>
+
+      <div v-else class="mt-4 grid gap-3">
+        <!-- Past list -->
+        <div v-if="manageTab === 'past'">
+          <div v-if="pastItems.length === 0" class="alert alert-ok">No past questions found.</div>
+
+          <div v-else class="grid gap-3">
+            <div v-for="p in pastItems" :key="p.id" class="card card-pad">
+              <div class="row">
+                <div class="min-w-0">
+                  <div class="h3 truncate">{{ p.title || 'Untitled' }}</div>
+
+                  <p class="sub mt-1">
+                    <span v-if="p.session" class="badge">{{ p.session }}</span>
+                    <span v-if="p.semester" class="badge ml-2">{{ p.semester }}</span>
+                    <span v-if="p.courseId" class="badge ml-2">{{ labelCourse(p.courseId) }}</span>
+                  </p>
+
+                  <p v-if="role === 'admin' && (p.createdByName || p.createdByEmail)" class="sub mt-1">
+                    <span class="muted">Uploaded by:</span> {{ p.createdByName || 'Unknown' }} <span v-if="p.createdByEmail" class="muted">({{ p.createdByEmail }})</span>
+                  </p>
+
+                  <div v-if="viewUrl(p)" class="mt-2">
+                    <a class="btn btn-ghost btn-sm" :href="viewUrl(p)" target="_blank" rel="noreferrer">View file</a>
+                  </div>
+                </div>
+
+                <div class="flex gap-2">
+                  <button class="btn btn-ghost btn-sm" :disabled="!canManageItem(p)" @click="startEdit('past', p)">
+                    Edit
+                  </button>
+                  <button class="btn btn-danger btn-sm" :disabled="!canManageItem(p)" @click="deleteItem('past', p)">
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="edit && edit.kind === 'past' && edit.id === p.id" class="mt-3 grid gap-3 sm:grid-cols-3">
+                <div class="sm:col-span-3">
+                  <label class="label">Title</label>
+                  <input v-model="edit.title" class="input" />
+                </div>
+
+                <div>
+                  <label class="label">Session</label>
+                  <input v-model="edit.session" class="input" placeholder="2023/2024" />
+                </div>
+
+                <div>
+                  <label class="label">Semester</label>
+                  <input v-model="edit.semester" class="input" placeholder="First / Second" />
+                </div>
+
+                <div class="flex items-end gap-2 sm:col-span-3">
+                  <AppButton class="w-full sm:w-auto" @click="saveEdit">Save</AppButton>
+                  <button class="btn btn-ghost w-full sm:w-auto" @click="edit = null">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Materials list -->
+        <div v-else>
+          <div v-if="materialItems.length === 0" class="alert alert-ok">No materials found.</div>
+
+          <div v-else class="grid gap-3">
+            <div v-for="m in materialItems" :key="m.id" class="card card-pad">
+              <div class="row">
+                <div class="min-w-0">
+                  <div class="h3 truncate">{{ m.title || 'Untitled' }}</div>
+
+                  <p class="sub mt-1">
+                    <span v-if="m.type" class="badge">{{ m.type }}</span>
+                    <span v-if="m.courseId" class="badge ml-2">{{ labelCourse(m.courseId) }}</span>
+                  </p>
+
+                  <p v-if="role === 'admin' && (m.createdByName || m.createdByEmail)" class="sub mt-1">
+                    <span class="muted">Uploaded by:</span> {{ m.createdByName || 'Unknown' }} <span v-if="m.createdByEmail" class="muted">({{ m.createdByEmail }})</span>
+                  </p>
+
+                  <p v-if="(m.tags || []).length" class="sub mt-1">
+                    <span class="muted">Tags:</span> {{ (m.tags || []).join(', ') }}
+                  </p>
+
+                  <div v-if="viewUrl(m)" class="mt-2">
+                    <a class="btn btn-ghost btn-sm" :href="viewUrl(m)" target="_blank" rel="noreferrer">View file</a>
+                  </div>
+                </div>
+
+                <div class="flex gap-2">
+                  <button class="btn btn-ghost btn-sm" :disabled="!canManageItem(m)" @click="startEdit('materials', m)">
+                    Edit
+                  </button>
+                  <button class="btn btn-danger btn-sm" :disabled="!canManageItem(m)" @click="deleteItem('materials', m)">
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="edit && edit.kind === 'materials' && edit.id === m.id" class="mt-3 grid gap-3 sm:grid-cols-3">
+                <div class="sm:col-span-3">
+                  <label class="label">Title</label>
+                  <input v-model="edit.title" class="input" />
+                </div>
+
+                <div>
+                  <label class="label">Type</label>
+                  <AppSelect
+                    :id="`editMaterialType-${m.id}`"
+                    v-model="edit.type"
+                    :options="[
+                      { value: 'pdf', label: 'PDF' },
+                      { value: 'image', label: 'Image' },
+                      { value: 'doc', label: 'DOC' }
+                    ]"
+                  />
+                </div>
+
+                <div class="sm:col-span-2">
+                  <label class="label">Tags</label>
+                  <input v-model="edit.tags" class="input" placeholder="revision, week 3" />
+                </div>
+
+                <div class="flex items-end gap-2 sm:col-span-3">
+                  <AppButton class="w-full sm:w-auto" @click="saveEdit">Save</AppButton>
+                  <button class="btn btn-ghost w-full sm:w-auto" @click="edit = null">Cancel</button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </AppCard>
+  </div>
+</template>
