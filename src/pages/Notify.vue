@@ -77,13 +77,19 @@ function fmtTime(s) {
 async function refresh({ silent = false } = {}) {
   if (!silent) isRefreshing.value = true
   try {
-    await Promise.allSettled([
+    const results = await Promise.allSettled([
       data.fetchNotifyChannels(),
       data.fetchNotifyFeed({
         limit: 40,
         channelId: channelFilter.value === 'all' ? '' : channelFilter.value
       })
     ])
+
+    // Surface errors instead of silently showing an empty page
+    const failed = results.find((r) => r.status === 'rejected')
+    if (failed && !silent) {
+      toast(failed.reason?.message || 'Failed to load announcements.', 'warn')
+    }
   } finally {
     isRefreshing.value = false
   }
