@@ -141,7 +141,7 @@ watch(
           class="flex items-center gap-2 hover:opacity-90"
           aria-label="Go to dashboard"
         >
-          <LogoMark variant="auto" :mobile="9" :desktop="11" alt="JabuSpark" />
+          <LogoMark variant="auto" :mobile="9" :desktop="11" alt="JabuStudyHub" />
         </RouterLink>
 
         <!-- Desktop nav (text links with underline, not pill buttons) -->

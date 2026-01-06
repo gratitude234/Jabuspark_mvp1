@@ -136,8 +136,8 @@ onMounted(() => {
       <aside class="hidden md:block">
         <div class="max-w-lg">
           <div class="flex items-center gap-3">
-            <LogoMark variant="mark" :size="10" alt="JabuSpark" />
-            <div class="text-lg font-extrabold">JabuSpark</div>
+            <LogoMark variant="mark" :size="10" alt="JabuStudyHub" />
+            <div class="text-lg font-extrabold">JabuStudyHub</div>
           </div>
 
           <h1 class="mt-6 text-4xl font-extrabold leading-tight tracking-tight">
@@ -179,7 +179,7 @@ onMounted(() => {
       <div class="w-full max-w-lg mx-auto">
         <!-- Mobile brand -->
         <header class="mb-6 flex flex-col items-center text-center md:hidden">
-          <LogoMark variant="lockup" :size="12" alt="JabuSpark" />
+          <LogoMark variant="lockup" :size="12" alt="JabuStudyHub" />
           <p class="mt-2 text-sm text-text-2">Study smarter at JABU.</p>
         </header>
 

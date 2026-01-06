@@ -2,11 +2,17 @@ import { storage } from './storage'
 
 /**
  * API base (Vite env first, then window override, then default production domain)
- * In production you said: https://jabumarket.com.ng/api
+ *
+ * Rename note:
+ * - Old overrides: window.__JABUSPARK_API_BASE__ / window.__JABUSPARK_FILES_BASE__
+ * - New overrides: window.__JABUSTUDYHUB_API_BASE__ / window.__JABUSTUDYHUB_FILES_BASE__
+ *
+ * We support both so existing deployments don't break.
  */
 export const API_BASE =
   (import.meta?.env?.VITE_API_BASE || '') ||
-  (typeof window !== 'undefined' && window.__JABUSPARK_API_BASE__) ||
+  (typeof window !== 'undefined' &&
+    (window.__JABUSTUDYHUB_API_BASE__ || window.__JABUSPARK_API_BASE__)) ||
   'https://jabumarket.com.ng/api'
 
 /**
@@ -19,7 +25,8 @@ export const API_BASE =
  */
 export const FILES_BASE =
   (import.meta?.env?.VITE_FILES_BASE || '') ||
-  (typeof window !== 'undefined' && window.__JABUSPARK_FILES_BASE__) ||
+  (typeof window !== 'undefined' &&
+    (window.__JABUSTUDYHUB_FILES_BASE__ || window.__JABUSPARK_FILES_BASE__)) ||
   String(API_BASE).replace(/\/?api\/?$/i, '')
 
 export function resolveFileUrl(input) {
@@ -50,7 +57,11 @@ function joinUrl(base, path) {
 async function readJsonSafe(res) {
   const text = await res.text()
   if (!text) return null
-  try { return JSON.parse(text) } catch { return null }
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
 }
 
 export class ApiError extends Error {
@@ -66,7 +77,10 @@ export class ApiError extends Error {
  * apiFetch('/health') -> GET https://.../health
  * apiFetch('/auth/login', { method:'POST', body:{...} })
  */
-export async function apiFetch(path, { method = 'GET', body = null, headers = {}, raw = false } = {}) {
+export async function apiFetch(
+  path,
+  { method = 'GET', body = null, headers = {}, raw = false } = {}
+) {
   const token = storage.get('token', null)
 
   const h = new Headers(headers)
@@ -86,7 +100,11 @@ export async function apiFetch(path, { method = 'GET', body = null, headers = {}
 
   let res
   try {
-    res = await fetch(url, { method, headers: h, body: method === 'GET' ? undefined : payload })
+    res = await fetch(url, {
+      method,
+      headers: h,
+      body: method === 'GET' ? undefined : payload,
+    })
   } catch (e) {
     throw new ApiError('Network error. Check your internet or API base URL.', { status: 0 })
   }

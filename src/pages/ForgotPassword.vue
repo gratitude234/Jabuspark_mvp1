@@ -19,7 +19,7 @@ function submit() {
   <main class="min-h-dvh flex items-center justify-center px-4 py-10">
     <div class="w-full max-w-md">
       <header class="mb-6 flex flex-col items-center text-center">
-        <LogoMark variant="lockup" :size="12" alt="JabuSpark" />
+        <LogoMark variant="lockup" :size="12" alt="JabuStudyHub" />
         <p class="mt-2 text-sm text-text-2">Reset your password</p>
       </header>
 
@@ -51,7 +51,7 @@ function submit() {
         <div class="divider my-5" />
 
         <div class="alert alert-warn" role="status">
-          Password reset is coming soon. For now, please contact your class rep or the JabuSpark admin team to reset
+          Password reset is coming soon. For now, please contact your class rep or the JabuStudyHub admin team to reset
           your account.
         </div>
 
