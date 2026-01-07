@@ -127,6 +127,14 @@ const banksFiltered = computed(() => {
   return all.filter(b => String(b.title || '').toLowerCase().includes(q))
 })
 
+/** WhatsApp support */
+const whatsappNumber = '2347041022336' // 07041022336 -> +2347041022336 (wa.me expects no +)
+const whatsappLink = computed(() => {
+  const name = auth.user?.fullName || 'a student'
+  const msg = `Hi, I’m ${name}. I need help with JabuStudyHub.`
+  return `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`
+})
+
 onMounted(async () => {
   if (!auth.isAuthed) return
   await Promise.allSettled([
@@ -153,8 +161,15 @@ onMounted(async () => {
       </div>
 
       <RouterLink to="/profile" class="icon-btn" aria-label="Open profile">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="h-5 w-5"
+        >
           <path d="M20 21a8 8 0 0 0-16 0" />
           <circle cx="12" cy="7" r="4" />
         </svg>
@@ -220,10 +235,7 @@ onMounted(async () => {
             </div>
 
             <div class="mt-4 flex flex-col sm:flex-row gap-2">
-              <RouterLink
-                :to="quickBank ? `/practice/${quickBank.id}` : '/practice'"
-                class="btn btn-primary btn-lg"
-              >
+              <RouterLink :to="quickBank ? `/practice/${quickBank.id}` : '/practice'" class="btn btn-primary btn-lg">
                 {{ quickBank ? 'Resume practice' : 'Start practice' }}
               </RouterLink>
               <RouterLink to="/materials" class="btn btn-ghost btn-lg">Open materials</RouterLink>
@@ -342,6 +354,29 @@ onMounted(async () => {
             <span class="badge">Start</span>
           </div>
         </RouterLink>
+      </div>
+    </AppCard>
+
+    <!-- WhatsApp support -->
+    <AppCard tone="card" class="mt-4">
+      <div class="row">
+        <div>
+          <div class="h2">Need help?</div>
+          <p class="sub mt-1">
+            If you run into any issues, reach out on WhatsApp:
+            <span class="font-semibold">07041022336</span>
+          </p>
+        </div>
+
+        <a
+          :href="whatsappLink"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn btn-primary"
+          aria-label="Chat with support on WhatsApp"
+        >
+          WhatsApp support
+        </a>
       </div>
     </AppCard>
   </div>
