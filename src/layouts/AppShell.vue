@@ -28,7 +28,7 @@ const firstName = computed(() => {
 const navItems = computed(() => [
   { key: 'home', label: 'Home', to: '/dashboard', match: () => isMatch('/dashboard') },
   { key: 'practice', label: 'Practice', to: '/practice', match: () => isMatch('/practice') },
-  { key: 'pastq', label: 'Past Questions', to: '/past-questions', match: () => isMatch('/past-questions') },
+  { key: 'pastq', label: 'PastQ', to: '/past-questions', match: () => isMatch('/past-questions') },
   { key: 'materials', label: 'Materials', to: '/materials', match: () => isMatch('/materials') },
   { key: 'saved', label: 'Saved', to: '/saved', match: () => isMatch('/saved') },
   { key: 'progress', label: 'Progress', to: '/progress', match: () => isMatch('/progress') }

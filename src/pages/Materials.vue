@@ -98,8 +98,9 @@ function clearSearch() {
 
 <template>
   <div class="page space-y-3">
-    <!-- Sticky header + filters -->
-    <AppCard class="sticky top-0 z-10 backdrop-blur bg-surface/80">
+    <!-- IMPORTANT FIX:
+         Sticky only on sm+ (desktop/tablet). On mobile it stays normal so it won't block content. -->
+    <AppCard class="sm:sticky sm:top-0 sm:z-10 sm:backdrop-blur sm:bg-surface/90">
       <div class="flex flex-col gap-3">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
@@ -135,7 +136,7 @@ function clearSearch() {
               <button
                 v-if="query.trim()"
                 type="button"
-                class="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs"
+                class="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs h-9 px-3"
                 @click="clearSearch"
                 aria-label="Clear search"
               >
@@ -163,7 +164,7 @@ function clearSearch() {
               <AppButton
                 :variant="savedOnly ? 'primary' : 'ghost'"
                 size="sm"
-                class="w-full"
+                class="w-full h-11"
                 type="button"
                 @click="savedOnly = !savedOnly"
                 :aria-pressed="savedOnly"
@@ -186,10 +187,10 @@ function clearSearch() {
         <div class="grid gap-2">
           <div class="skeleton h-6 w-3/4" />
           <div class="skeleton h-4 w-2/3" />
-          <div class="flex gap-2 mt-2">
-            <div class="skeleton h-9 w-24" />
-            <div class="skeleton h-9 w-24" />
-            <div class="skeleton h-9 w-16" />
+          <div class="flex gap-2 mt-2 flex-wrap">
+            <div class="skeleton h-11 w-24" />
+            <div class="skeleton h-11 w-24" />
+            <div class="skeleton h-11 w-16" />
           </div>
         </div>
       </AppCard>
@@ -202,8 +203,8 @@ function clearSearch() {
         Try a different course, clear your search, or save materials to find them quickly later.
       </p>
       <div class="mt-4 flex flex-col sm:flex-row gap-2">
-        <AppButton variant="ghost" size="sm" @click="clearSearch">Clear search</AppButton>
-        <RouterLink to="/practice" class="btn btn-primary btn-sm">Go to practice</RouterLink>
+        <AppButton variant="ghost" size="sm" class="h-11" @click="clearSearch">Clear search</AppButton>
+        <RouterLink to="/practice" class="btn btn-primary btn-sm h-11">Go to practice</RouterLink>
       </div>
     </AppCard>
 
@@ -218,7 +219,9 @@ function clearSearch() {
       >
         <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div class="min-w-0">
-            <div class="text-base sm:text-lg font-extrabold truncate">{{ m.title }}</div>
+            <div class="text-base sm:text-lg font-extrabold leading-snug line-clamp-2 sm:truncate">
+              {{ m.title }}
+            </div>
 
             <div class="mt-2 flex flex-wrap items-center gap-2 text-sm">
               <span v-if="m.type" class="badge">{{ m.type }}</span>
@@ -240,10 +243,12 @@ function clearSearch() {
             </div>
           </div>
 
-          <div class="flex flex-wrap gap-2 sm:justify-end">
+          <!-- Mobile: full-width buttons; Desktop: inline -->
+          <div class="actions sm:justify-end">
             <AppButton
               variant="ghost"
               size="sm"
+              class="h-11"
               @click="toggleSave(m)"
               :aria-pressed="data.isSaved('materials', m.id)"
               :aria-label="data.isSaved('materials', m.id) ? 'Unsave material' : 'Save material'"
@@ -251,12 +256,12 @@ function clearSearch() {
               {{ data.isSaved('materials', m.id) ? 'Saved' : 'Save' }}
             </AppButton>
 
-            <AppButton variant="primary" size="sm" @click="openItem = m">
+            <AppButton variant="primary" size="sm" class="h-11" @click="openItem = m">
               Preview
             </AppButton>
 
             <a
-              class="btn btn-ghost btn-sm"
+              class="btn btn-ghost btn-sm h-11"
               :href="m.fileUrl"
               target="_blank"
               rel="noreferrer"
@@ -283,7 +288,7 @@ function clearSearch() {
 <style scoped>
 /* Tag chips: small, scannable, clickable */
 .chip {
-  padding: 0.25rem 0.55rem;
+  padding: 0.35rem 0.65rem;
   border-radius: 9999px;
   font-size: 0.75rem;
   line-height: 1rem;
@@ -296,5 +301,21 @@ function clearSearch() {
 .chip:focus {
   outline: 2px solid rgba(0, 0, 0, 0.25);
   outline-offset: 2px;
+}
+
+/* Mobile-first action layout: comfy tap targets */
+.actions {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 1fr;
+  width: 100%;
+}
+@media (min-width: 640px) {
+  .actions {
+    display: flex;
+    width: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }
 </style>

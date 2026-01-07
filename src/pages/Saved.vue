@@ -38,42 +38,48 @@ const savedQuestionsCount = computed(() => (saved.value.questions || []).length)
           <p class="sub mt-1">Your bookmarked past questions, materials, and questions.</p>
         </div>
 
-        <div class="seg w-full sm:w-auto" role="tablist" aria-label="Saved tabs">
-          <button
-            class="seg-btn"
-            :class="tab === 'pastQuestions' ? 'seg-btn--active' : 'seg-btn--inactive'"
-            role="tab"
-            :aria-selected="tab === 'pastQuestions'"
-            type="button"
-            @click="tab = 'pastQuestions'"
-          >
-            Past Q
-            <span class="badge ml-1">{{ saved.pastQuestions.length }}</span>
-          </button>
+        <!-- Mobile-first: horizontally scrollable segmented tabs -->
+        <div class="w-full sm:w-auto" role="tablist" aria-label="Saved tabs">
+          <div class="overflow-x-auto -mx-4 px-4 sm:overflow-visible sm:mx-0 sm:px-0">
+            <div class="seg flex w-max sm:w-auto gap-2">
+              <button
+                class="seg-btn h-11 px-4 whitespace-nowrap"
+                :class="tab === 'pastQuestions' ? 'seg-btn--active' : 'seg-btn--inactive'"
+                role="tab"
+                :aria-selected="tab === 'pastQuestions'"
+                type="button"
+                @click="tab = 'pastQuestions'"
+              >
+                <span class="sm:hidden">Past Q</span>
+                <span class="hidden sm:inline">Past questions</span>
+                <span class="badge ml-2">{{ saved.pastQuestions.length }}</span>
+              </button>
 
-          <button
-            class="seg-btn"
-            :class="tab === 'materials' ? 'seg-btn--active' : 'seg-btn--inactive'"
-            role="tab"
-            :aria-selected="tab === 'materials'"
-            type="button"
-            @click="tab = 'materials'"
-          >
-            Materials
-            <span class="badge ml-1">{{ saved.materials.length }}</span>
-          </button>
+              <button
+                class="seg-btn h-11 px-4 whitespace-nowrap"
+                :class="tab === 'materials' ? 'seg-btn--active' : 'seg-btn--inactive'"
+                role="tab"
+                :aria-selected="tab === 'materials'"
+                type="button"
+                @click="tab = 'materials'"
+              >
+                Materials
+                <span class="badge ml-2">{{ saved.materials.length }}</span>
+              </button>
 
-          <button
-            class="seg-btn"
-            :class="tab === 'questions' ? 'seg-btn--active' : 'seg-btn--inactive'"
-            role="tab"
-            :aria-selected="tab === 'questions'"
-            type="button"
-            @click="tab = 'questions'"
-          >
-            Questions
-            <span class="badge ml-1">{{ savedQuestionsCount }}</span>
-          </button>
+              <button
+                class="seg-btn h-11 px-4 whitespace-nowrap"
+                :class="tab === 'questions' ? 'seg-btn--active' : 'seg-btn--inactive'"
+                role="tab"
+                :aria-selected="tab === 'questions'"
+                type="button"
+                @click="tab = 'questions'"
+              >
+                Questions
+                <span class="badge ml-2">{{ savedQuestionsCount }}</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -94,12 +100,12 @@ const savedQuestionsCount = computed(() => (saved.value.questions || []).length)
         <RouterLink to="/past-questions" class="underline text-accent font-semibold ml-1">Browse past questions</RouterLink>
       </div>
 
-      <div v-else class="grid gap-2">
+      <div v-else class="grid gap-3 sm:gap-2">
         <RouterLink
           v-for="pq in savedPast"
           :key="pq.id"
           to="/past-questions"
-          class="card card-press card-pad"
+          class="card card-press card-pad py-3"
         >
           <div class="text-sm font-extrabold truncate">{{ pq.title }}</div>
           <div class="text-xs text-text-3 mt-1">{{ pq.session }} • {{ pq.semester }}</div>
@@ -118,12 +124,12 @@ const savedQuestionsCount = computed(() => (saved.value.questions || []).length)
         <RouterLink to="/materials" class="underline text-accent font-semibold ml-1">Browse materials</RouterLink>
       </div>
 
-      <div v-else class="grid gap-2">
+      <div v-else class="grid gap-3 sm:gap-2">
         <RouterLink
           v-for="m in savedMaterials"
           :key="m.id"
           to="/materials"
-          class="card card-press card-pad"
+          class="card card-press card-pad py-3"
         >
           <div class="text-sm font-extrabold truncate">{{ m.title }}</div>
           <div class="text-xs text-text-3 mt-1">{{ (m.tags || []).slice(0, 3).join(', ') }}</div>

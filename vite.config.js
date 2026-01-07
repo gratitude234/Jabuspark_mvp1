@@ -12,8 +12,7 @@ export default defineConfig({
 
       // Static assets to include in the build output
       includeAssets: [
-        'favicon.png',
-        'favicon12.png',
+        'favicon128.png',
         'icons/icon-192.png',
         'icons/icon-512.png',
         'icons/maskable-192.png',

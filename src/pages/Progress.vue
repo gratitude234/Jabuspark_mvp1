@@ -56,8 +56,15 @@ onMounted(load)
           </p>
         </div>
 
-        <div class="flex gap-2">
-          <AppButton variant="ghost" :disabled="loading" @click="load">Refresh</AppButton>
+        <div class="flex gap-2 w-full sm:w-auto">
+          <AppButton
+            variant="ghost"
+            class="w-full sm:w-auto h-11"
+            :disabled="loading"
+            @click="load"
+          >
+            Refresh
+          </AppButton>
         </div>
       </div>
     </AppCard>
@@ -79,10 +86,15 @@ onMounted(load)
 
     <div v-else class="grid gap-3 mt-3">
       <AppCard v-for="c in courses" :key="c.courseId">
-        <div class="flex items-start justify-between gap-3">
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div class="min-w-0">
-            <div class="h2">{{ c.code }} <span class="text-text-3">• L{{ c.level }}</span></div>
-            <div class="text-sm text-text-2 mt-1">{{ c.title }}</div>
+            <div class="h2 leading-tight">
+              {{ c.code }}
+              <span class="text-text-3">• L{{ c.level }}</span>
+            </div>
+            <div class="text-sm text-text-2 mt-1 line-clamp-2 sm:line-clamp-none">
+              {{ c.title }}
+            </div>
 
             <div class="mt-3 flex flex-wrap gap-2">
               <span class="badge">Accuracy: {{ c.accuracy }}%</span>
@@ -92,8 +104,14 @@ onMounted(load)
             </div>
           </div>
 
-          <div class="flex flex-col items-end gap-2">
-            <AppButton variant="ghost" size="sm" @click="toggle(c.courseId)">
+          <!-- Mobile-first: action button full-width + bigger tap target -->
+          <div class="w-full sm:w-auto">
+            <AppButton
+              variant="ghost"
+              size="sm"
+              class="w-full sm:w-auto h-11"
+              @click="toggle(c.courseId)"
+            >
               {{ expanded[c.courseId] ? 'Hide trend' : 'View trend' }}
             </AppButton>
           </div>
@@ -110,14 +128,16 @@ onMounted(load)
             <div
               v-for="p in trendFor(c.courseId)"
               :key="p.date"
-              class="flex items-center gap-3"
+              class="trend-row"
             >
-              <div class="w-24 text-xs text-text-3">{{ p.date }}</div>
-              <div class="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
-                <div class="h-full bg-accent transition-all duration-200" :style="{ width: p.accuracy + '%' }" />
+              <div class="date">{{ p.date }}</div>
+
+              <div class="bar">
+                <div class="bar-fill" :style="{ width: p.accuracy + '%' }" />
               </div>
-              <div class="w-16 text-right text-xs font-semibold">{{ p.accuracy }}%</div>
-              <div class="w-20 text-right text-xs text-text-3">{{ p.attempts }} q</div>
+
+              <div class="acc">{{ p.accuracy }}%</div>
+              <div class="att">{{ p.attempts }} q</div>
             </div>
           </div>
         </div>
@@ -125,3 +145,63 @@ onMounted(load)
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Mobile: prevent overflow by using a compact grid row; Desktop: restore wider layout */
+.trend-row {
+  display: grid;
+  grid-template-columns: 84px 1fr 56px 52px;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.date {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.10);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--accent, #7c3aed);
+  transition: width 0.2s ease;
+}
+
+.acc {
+  width: 56px;
+  text-align: right;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.att {
+  width: 52px;
+  text-align: right;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+}
+
+@media (min-width: 640px) {
+  .trend-row {
+    grid-template-columns: 96px 1fr 64px 72px;
+  }
+  .date {
+    font-size: 0.8rem;
+  }
+  .acc,
+  .att {
+    font-size: 0.8rem;
+  }
+}
+</style>

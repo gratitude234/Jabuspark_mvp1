@@ -99,7 +99,7 @@ async function challengeFriend(bankId) {
     const duel = await data.createDuel({ bankId })
     if (duel?.code) router.push(`/duel/${duel.code}`)
   } catch (e) {
-    // data store already toasts on success; error handled by global fetch handler
+    // handled globally
   } finally {
     duelBusy.value = { ...duelBusy.value, [bankId]: false }
   }
@@ -108,46 +108,57 @@ async function challengeFriend(bankId) {
 
 <template>
   <!-- pb-28 prevents bottom nav overlap on phones -->
-  <div class="page pb-28">
+  <div class="page pb-28 space-y-3">
     <AppCard>
       <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div class="min-w-0">
           <div class="h1">Practice</div>
           <p class="sub mt-1">Quick drills to boost recall and exam confidence.</p>
 
+          <!-- Stats: comfortable on mobile -->
           <div class="mt-4 grid grid-cols-3 gap-2">
             <StatPill label="Streak" :value="progress?.streak ?? 0" />
             <StatPill label="Accuracy" :value="(progress?.accuracy ?? 0) + '%'" />
             <StatPill label="Answered" :value="progress?.totalAnswered ?? 0" />
           </div>
 
+          <!-- Today card -->
           <div class="mt-4 card card-pad">
             <div class="flex items-center justify-between text-sm font-semibold">
               <span>Today</span>
               <span class="text-text-2">Level {{ progress?.level ?? 0 }} • {{ progress?.xp ?? 0 }} XP</span>
             </div>
+
             <div class="mt-2 flex items-center justify-between text-xs text-text-3">
               <span>Goal</span>
               <span>{{ progress?.todayAnswered ?? 0 }} / {{ progress?.dailyGoal ?? 10 }}</span>
             </div>
+
             <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
               <div class="h-full bg-accent transition-all duration-200" :style="{ width: goalPct + '%' }" />
             </div>
-            <div class="mt-3 flex flex-wrap gap-2">
-              <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(10)">Goal 10</button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(20)">Goal 20</button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="data.setDailyGoal(50)">Goal 50</button>
+
+            <!-- Goals: horizontal scroll on mobile so buttons don't wrap weirdly -->
+            <div class="mt-3 -mx-3 px-3 overflow-x-auto">
+              <div class="btn-row">
+                <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="data.setDailyGoal(10)">Goal 10</button>
+                <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="data.setDailyGoal(20)">Goal 20</button>
+                <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="data.setDailyGoal(50)">Goal 50</button>
+              </div>
             </div>
           </div>
 
-          <div class="mt-3 flex flex-wrap gap-2">
-            <button type="button" class="btn btn-ghost btn-sm" @click="router.push('/practice/review')">
-              Smart Review
-              <span v-if="progress?.dueReviews" class="badge ml-2">{{ progress.dueReviews }}</span>
-            </button>
-            <button type="button" class="btn btn-ghost btn-sm" @click="router.push('/progress')">Progress</button>
-            <button type="button" class="btn btn-ghost btn-sm" @click="router.push('/exam')">Exam Mode</button>
-            <button type="button" class="btn btn-ghost btn-sm" @click="router.push('/leaderboard')">Leaderboard</button>
+          <!-- Quick links: scroll on mobile (prevents cramped multi-line buttons) -->
+          <div class="mt-3 -mx-4 px-4 overflow-x-auto sm:mx-0 sm:px-0">
+            <div class="btn-row">
+              <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/practice/review')">
+                Smart Review
+                <span v-if="progress?.dueReviews" class="badge ml-2">{{ progress.dueReviews }}</span>
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/progress')">Progress</button>
+              <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/exam')">Exam Mode</button>
+              <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/leaderboard')">Leaderboard</button>
+            </div>
           </div>
         </div>
 
@@ -174,7 +185,7 @@ async function challengeFriend(bankId) {
     </AppCard>
 
     <!-- AI Generator -->
-    <AppCard class="mt-3">
+    <AppCard>
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <div class="h2">AI quick quiz</div>
@@ -193,10 +204,10 @@ async function challengeFriend(bankId) {
         </div>
       </div>
 
-      <div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
+      <div class="mt-3 grid gap-2 sm:flex sm:items-end sm:gap-3">
         <div class="w-full sm:w-[220px]">
           <label class="label" for="aiDifficulty">Difficulty</label>
-          <select id="aiDifficulty" v-model="aiDifficulty" class="input">
+          <select id="aiDifficulty" v-model="aiDifficulty" class="input h-11">
             <option value="mixed">Mixed</option>
             <option value="easy">Easy</option>
             <option value="medium">Medium</option>
@@ -204,10 +215,8 @@ async function challengeFriend(bankId) {
           </select>
         </div>
 
-        <div class="flex-1" />
-
         <button
-          class="btn btn-primary w-full sm:w-auto"
+          class="btn btn-primary w-full sm:w-auto h-11"
           :disabled="!selectedCourseId || ai.loading.generateBank"
           @click="generateAiBank"
         >
@@ -221,7 +230,7 @@ async function challengeFriend(bankId) {
     </AppCard>
 
     <!-- Banks -->
-    <AppCard v-if="content.loading.banks" class="mt-3">
+    <AppCard v-if="content.loading.banks">
       <div class="grid gap-2">
         <div class="skeleton h-16" />
         <div class="skeleton h-16" />
@@ -229,12 +238,12 @@ async function challengeFriend(bankId) {
       </div>
     </AppCard>
 
-    <AppCard v-else-if="banks.length === 0" class="mt-3">
+    <AppCard v-else-if="banks.length === 0">
       <div class="h2">No banks found</div>
       <p class="sub mt-1">Try selecting a different course, or check back later as new banks are added.</p>
     </AppCard>
 
-    <div v-else class="mt-3 grid gap-3">
+    <div v-else class="grid gap-3">
       <div class="flex items-end justify-between">
         <div class="h2">Available banks</div>
         <div class="text-xs text-text-3">
@@ -244,31 +253,29 @@ async function challengeFriend(bankId) {
 
       <div v-for="b in banks" :key="b.id" class="card card-pad">
         <div class="flex flex-col gap-3">
-          <!-- Title now WRAPS on mobile instead of truncating -->
           <div class="min-w-0">
             <div class="text-base font-extrabold leading-snug break-words line-clamp-2">
               {{ b.title }}
             </div>
 
-            <!-- Meta becomes chips (wrap-friendly on small screens) -->
             <div class="mt-2 flex flex-wrap items-center gap-2">
               <span class="chip">{{ b.questionCount }} questions</span>
               <span class="chip">{{ bankLabel(b) }}</span>
             </div>
           </div>
 
-          <!-- Mobile: actions side-by-side (fixes tall cards) -->
-          <div class="grid grid-cols-2 gap-2">
+          <!-- Actions: 2-column on mobile, inline on desktop -->
+          <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <RouterLink
               :to="`/practice/${b.id}`"
-              class="btn btn-primary btn-sm w-full justify-center"
+              class="btn btn-primary btn-sm w-full sm:w-auto h-11 justify-center"
             >
               Start practice
             </RouterLink>
 
             <button
               type="button"
-              class="btn btn-ghost btn-sm w-full justify-center"
+              class="btn btn-ghost btn-sm w-full sm:w-auto h-11 justify-center"
               :disabled="!!duelBusy[b.id]"
               @click="challengeFriend(b.id)"
             >
@@ -280,3 +287,22 @@ async function challengeFriend(bankId) {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Simple horizontal scroll rows used for button groups */
+.btn-row {
+  display: flex;
+  gap: 0.5rem;
+  width: max-content;
+  padding-bottom: 0.25rem; /* breathing room above scrollbar */
+}
+
+/* Chips for bank meta */
+.chip {
+  padding: 0.35rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  background: rgba(0, 0, 0, 0.06);
+}
+</style>
