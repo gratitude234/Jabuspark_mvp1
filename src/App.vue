@@ -5,10 +5,10 @@ import { useAuthStore } from './stores/auth'
 import { useDataStore } from './stores/data'
 import { useCatalogStore } from './stores/catalog'
 import ToastHost from './components/ToastHost.vue'
-
 import PwaInstallBanner from './components/PwaInstallBanner.vue'
 import PwaUpdateToast from './components/PwaUpdateToast.vue'
 import OfflineBanner from './components/OfflineBanner.vue'
+
 const auth = useAuthStore()
 const data = useDataStore()
 const catalog = useCatalogStore()
@@ -51,11 +51,11 @@ onBeforeUnmount(() => {
       <div class="absolute -top-40 -right-40 h-[640px] w-[640px] rounded-full bg-white/4 blur-3xl"></div>
     </div>
 
-    <RouterView />
-
     <OfflineBanner />
-    <PwaUpdateToast />
     <PwaInstallBanner />
+    <PwaUpdateToast />
+
+    <RouterView />
 
     <ToastHost ref="toast" />
   </div>

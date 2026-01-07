@@ -1,61 +1,64 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
-const isOnline = computed(() => navigator.onLine)
+const online = ref(navigator.onLine)
 
-function retry() {
-  window.location.reload()
+function setOnline() {
+  online.value = true
 }
+function setOffline() {
+  online.value = false
+}
+
+const statusText = computed(() => (online.value ? 'Back online ✅' : 'You are offline'))
+
+function go(path) {
+  router.push(path)
+}
+
+onMounted(() => {
+  window.addEventListener('online', setOnline)
+  window.addEventListener('offline', setOffline)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('online', setOnline)
+  window.removeEventListener('offline', setOffline)
+})
 </script>
 
 <template>
-  <div class="min-h-dvh px-4 py-10">
-    <div class="mx-auto max-w-xl">
-      <div class="rounded-3xl border border-white/10 bg-white/5 p-6">
-        <h1 class="text-2xl font-bold text-white">Offline mode</h1>
-        <p class="mt-2 text-white/70">
-          You can still open pages you visited recently (and any cached PDFs/materials).
-        </p>
-
-        <div class="mt-5 flex flex-wrap gap-2">
-          <button
-            class="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black"
-            @click="retry"
-          >
-            Retry
-          </button>
-          <button
-            class="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-white/90"
-            @click="router.push('/saved')"
-          >
-            Saved
-          </button>
-          <button
-            class="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-white/90"
-            @click="router.push('/materials')"
-          >
-            Materials
-          </button>
-          <button
-            class="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-white/90"
-            @click="router.push('/past-questions')"
-          >
-            Past Questions
-          </button>
+  <div class="min-h-dvh">
+    <div class="container-app py-8">
+      <div class="page">
+        <div class="section">
+          <div class="h1">Offline mode</div>
+          <p class="sub">{{ statusText }}</p>
         </div>
 
-        <div class="mt-6 rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
-          <div class="font-semibold text-white/90">Tip</div>
-          Open a material (PDF) once while online—then it will stay available offline if cached.
-        </div>
+        <div class="card card-pad space-y-4">
+          <div class="text-sm text-text-2">
+            What you can do offline depends on what you’ve opened before.
+            Previously visited pages and downloaded PDFs should still open.
+          </div>
 
-        <div class="mt-4 text-sm">
-          <span class="text-white/70">Network:</span>
-          <span class="ml-2 font-semibold" :class="isOnline ? 'text-emerald-300' : 'text-amber-300'">
-            {{ isOnline ? 'Online' : 'Offline' }}
-          </span>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <button class="btn btn-ghost" @click="go('/saved')">Open Saved</button>
+            <button class="btn btn-ghost" @click="go('/materials')">Browse Materials</button>
+            <button class="btn btn-ghost" @click="go('/past-questions')">Past Questions</button>
+            <button class="btn btn-ghost" @click="go('/dashboard')">Dashboard</button>
+          </div>
+
+          <div class="divider" />
+
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-outline btn-sm" @click="location.reload()">Retry</button>
+            <button class="btn btn-primary btn-sm" :disabled="!online" @click="go('/dashboard')">
+              Continue online
+            </button>
+          </div>
         </div>
       </div>
     </div>

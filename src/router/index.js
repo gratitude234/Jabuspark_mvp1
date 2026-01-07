@@ -18,8 +18,8 @@ import Practice from '../pages/Practice.vue'
 import Review from '../pages/Review.vue'
 import Progress from '../pages/Progress.vue'
 import Profile from '../pages/Profile.vue'
-
 import Offline from '../pages/Offline.vue'
+
 // ✅ NEW killer features
 import Leaderboard from '../pages/Leaderboard.vue'
 import ExamHome from '../pages/ExamHome.vue'
@@ -67,6 +67,11 @@ const routes = [
       { path: 'login', component: Login, meta: { title: 'Login' } },
       { path: 'forgot', component: ForgotPassword, meta: { title: 'Reset Password' } },
     ],
+  },
+  {
+    path: '/offline',
+    component: Offline,
+    meta: { title: 'Offline' },
   },
   {
     path: '/',
@@ -128,8 +133,6 @@ const routes = [
       { path: 'admin/notify', component: AdminNotify, meta: { title: 'Post Announcement', roles: ['admin'] } },
     ],
   },
-  // Public offline page (works even without network)
-  { path: '/offline', component: Offline, meta: { title: 'Offline', public: true } },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
 ]
 
@@ -147,7 +150,7 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const auth = useAuthStore()
-  const isPublic = to.path.startsWith('/auth') || to.meta?.public === true
+  const isPublic = to.path.startsWith('/auth') || to.path === '/offline'
 
   // 1) Auth gate
   if (!isPublic && !auth.isAuthed) {

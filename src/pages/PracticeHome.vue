@@ -11,6 +11,7 @@ import AppInput from '../components/AppInput.vue'
 import AppSelect from '../components/AppSelect.vue'
 import StatPill from '../components/StatPill.vue'
 import { bankMeta } from '../utils/bankKind'
+import { useRememberedCourseId } from '../composables/useRememberedCourseId'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -22,7 +23,6 @@ const ai = useAiStore()
 const profile = computed(() => auth.user?.profile || {})
 const progress = computed(() => data.progress || {})
 
-const selectedCourseId = ref(profile.value.courseIds?.[0] || null)
 const query = ref('')
 
 const aiTopic = ref('')
@@ -38,6 +38,12 @@ const myCourses = computed(() =>
 const courseOptions = computed(() =>
   myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` }))
 )
+
+// UX: remember last selected course instead of defaulting to the first one.
+const selectedCourseId = useRememberedCourseId('lastCourseId.practice', {
+  getAllowedIds: () => myCourses.value.map(c => c.id),
+  defaultValue: null, // All my courses
+})
 
 watch(selectedCourseId, async (cid) => {
   await content.fetchBanks({ courseId: cid || '' })

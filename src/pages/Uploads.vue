@@ -8,6 +8,8 @@ import AppCard from '../components/AppCard.vue'
 import AppSelect from '../components/AppSelect.vue'
 import AppButton from '../components/AppButton.vue'
 
+import { useRememberedCourseId } from '../composables/useRememberedCourseId'
+
 const auth = useAuthStore()
 const catalog = useCatalogStore()
 
@@ -36,8 +38,15 @@ const uploadTab = ref('past') // 'past' | 'materials'
 const manageTab = ref('past') // 'past' | 'materials'
 
 // Course selection
-const courseId = ref('')
-const filterCourseId = ref('')
+const courseId = useRememberedCourseId('lastCourseId.uploads.course', {
+  getAllowedIds: () => courseOptions.value.map(o => String(o.value)),
+  defaultValue: '',
+})
+
+const filterCourseId = useRememberedCourseId('lastCourseId.uploads.filter', {
+  getAllowedIds: () => courseOptions.value.map(o => String(o.value)),
+  defaultValue: '', // '' means “All courses”
+})
 
 // Form state (Past Questions)
 const pqTitle = ref('')
@@ -111,10 +120,14 @@ function ensureValidCourseSelection() {
     if (filterCourseId.value) filterCourseId.value = ''
     return
   }
-  if (!courseId.value || !allowed.has(String(courseId.value))) {
-    courseId.value = String(courseOptions.value[0].value)
+  // Do not auto-pick the first course. Only clear invalid selections.
+  if (courseId.value && !allowed.has(String(courseId.value))) {
+    courseId.value = ''
   }
-  if (!filterCourseId.value) filterCourseId.value = courseId.value
+  // filterCourseId can be '' (All courses). Only clear if it's set and invalid.
+  if (filterCourseId.value && !allowed.has(String(filterCourseId.value))) {
+    filterCourseId.value = ''
+  }
 }
 
 function resetUploadMessages() {
@@ -381,10 +394,6 @@ watch(courseOptions, () => {
   ensureValidCourseSelection()
 })
 
-watch(courseId, (next) => {
-  if (!filterCourseId.value && next) filterCourseId.value = next
-})
-
 watch(filterCourseId, () => {
   loadMine()
 })
@@ -580,7 +589,7 @@ watch(filterCourseId, () => {
           <AppSelect
             id="manageCourseFilterPick"
             v-model="filterCourseId"
-            :options="[{ value: '', label: 'All courses' }, ...courseOptions]"
+            :options="courseOptions"
             placeholder="All courses"
           />
           <p class="help mt-1">Tip: pick a course to narrow your list.</p>

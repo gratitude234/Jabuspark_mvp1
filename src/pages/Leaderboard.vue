@@ -5,23 +5,29 @@ import { useCatalogStore } from '../stores/catalog'
 import { useDataStore } from '../stores/data'
 import AppCard from '../components/AppCard.vue'
 import AppSelect from '../components/AppSelect.vue'
+import { useRememberedCourseId } from '../composables/useRememberedCourseId'
 
 const auth = useAuthStore()
 const catalog = useCatalogStore()
 const data = useDataStore()
 
 const profile = computed(() => auth.user?.profile || {})
-const selectedCourseId = ref('')
 const loading = ref(false)
 const error = ref('')
 
 const myCourses = computed(() =>
   (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
 )
-const courseOptions = computed(() => [
-  { value: '', label: 'All my courses' },
-  ...myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` })),
-])
+
+// UX: remember last selected course instead of defaulting to the first one.
+const selectedCourseId = useRememberedCourseId('lastCourseId.leaderboard', {
+  getAllowedIds: () => myCourses.value.map(c => c.id),
+  defaultValue: null, // All my courses
+})
+
+const courseOptions = computed(() =>
+  myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` }))
+)
 
 const board = computed(() => data.leaderboard || { items: [], me: null, week: '' })
 
@@ -29,7 +35,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    await data.fetchLeaderboard({ courseId: selectedCourseId.value, limit: 50 })
+    await data.fetchLeaderboard({ courseId: selectedCourseId.value || '', limit: 50 })
   } catch (e) {
     error.value = e?.message || 'Failed to load leaderboard'
   } finally {
@@ -39,10 +45,6 @@ async function load() {
 
 onMounted(async () => {
   await catalog.fetchCourses()
-  // default to first course if they have one
-  if (!selectedCourseId.value && (profile.value.courseIds || []).length) {
-    selectedCourseId.value = ''
-  }
   await load()
 })
 
@@ -89,7 +91,12 @@ function fmtTime(seconds) {
 
         <div class="w-full sm:w-[340px]">
           <label class="label" for="course">Course</label>
-          <AppSelect id="course" v-model="selectedCourseId" :options="courseOptions" />
+          <AppSelect
+            id="course"
+            v-model="selectedCourseId"
+            :options="courseOptions"
+            placeholder="All my courses"
+          />
           <p class="help">Tip: choose a course to see who is topping that course.</p>
         </div>
       </div>

@@ -2,40 +2,48 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
 const show = ref(false)
-let registration = null
 
-function onUpdate(e) {
-  registration = e?.detail?.registration || null
+function onNeedRefresh() {
   show.value = true
 }
 
-async function applyUpdate() {
+function updateNow() {
   try {
-    // Many Workbox-based SWs listen for SKIP_WAITING.
-    registration?.waiting?.postMessage({ type: 'SKIP_WAITING' })
-  } catch (_) {
-    // ignore
+    // triggers skipWaiting + reload handled by plugin
+    window.__PWA_UPDATE__?.()
+  } finally {
+    // keep it visible until reload; if reload fails, allow close
+    setTimeout(() => (show.value = false), 3000)
   }
-  // If SKIP_WAITING isn't supported, a reload still helps pick up new assets in many setups.
-  window.location.reload()
 }
 
-onMounted(() => window.addEventListener('pwa:update', onUpdate))
-onBeforeUnmount(() => window.removeEventListener('pwa:update', onUpdate))
+function dismiss() {
+  show.value = false
+}
+
+onMounted(() => {
+  window.addEventListener('pwa:need-refresh', onNeedRefresh)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pwa:need-refresh', onNeedRefresh)
+})
 </script>
 
 <template>
-  <div v-if="show" class="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-xl">
-    <div class="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/70 p-4 backdrop-blur">
-      <div class="text-sm text-white/90">
-        A new version is available.
+  <div
+    v-if="show"
+    class="fixed bottom-4 left-4 right-4 z-50 mx-auto w-[min(520px,calc(100vw-2rem))]"
+  >
+    <div class="card card-pad flex items-center justify-between gap-3">
+      <div>
+        <div class="text-sm font-semibold">Update available</div>
+        <div class="text-xs text-text-3">A new version of JabuStudyHub is ready.</div>
       </div>
-      <button
-        class="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-black"
-        @click="applyUpdate"
-      >
-        Update
-      </button>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-outline btn-sm" @click="dismiss">Later</button>
+        <button class="btn btn-primary btn-sm" @click="updateNow">Update</button>
+      </div>
     </div>
   </div>
 </template>

@@ -7,6 +7,7 @@ import { useDataStore } from '../stores/data'
 import AppCard from '../components/AppCard.vue'
 import AppSelect from '../components/AppSelect.vue'
 import AppInput from '../components/AppInput.vue'
+import { useRememberedCourseId } from '../composables/useRememberedCourseId'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -14,20 +15,25 @@ const catalog = useCatalogStore()
 const data = useDataStore()
 
 const profile = computed(() => auth.user?.profile || {})
-const selectedCourseId = ref(profile.value.courseIds?.[0] || '')
+const myCourses = computed(() =>
+  (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
+)
+const courseOptions = computed(() =>
+  myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level}) — ${c.title}` }))
+)
+
+// UX: remember last selected course instead of defaulting to the first one.
+const selectedCourseId = useRememberedCourseId('lastCourseId.exam', {
+  getAllowedIds: () => myCourses.value.map(c => c.id),
+  defaultValue: null,
+})
 const count = ref(40)
 const durationMins = ref(60)
 const loading = ref(false)
 const error = ref('')
 
-const myCourses = computed(() =>
-  (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
-)
-const courseOptions = computed(() => myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level}) — ${c.title}` })))
-
 onMounted(async () => {
   await catalog.fetchCourses()
-  if (!selectedCourseId.value && courseOptions.value.length) selectedCourseId.value = courseOptions.value[0].value
 })
 
 async function start() {

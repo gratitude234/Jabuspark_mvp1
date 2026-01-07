@@ -9,13 +9,13 @@ import AppInput from '../components/AppInput.vue'
 import AppSelect from '../components/AppSelect.vue'
 import AppButton from '../components/AppButton.vue'
 import PdfModal from '../components/PdfModal.vue'
+import { useRememberedCourseId } from '../composables/useRememberedCourseId'
 
 const auth = useAuthStore()
 const data = useDataStore()
 const catalog = useCatalogStore()
 const content = useContentStore()
 
-const selectedCourseId = ref(auth.user?.profile?.courseIds?.[0] || null)
 const query = ref('')
 const openItem = ref(null)
 
@@ -37,6 +37,12 @@ watch(
 const myCourses = computed(() =>
   (catalog.courses || []).filter(c => (auth.user?.profile?.courseIds || []).includes(c.id))
 )
+
+// UX: remember last selected course instead of defaulting to the first one.
+const selectedCourseId = useRememberedCourseId('lastCourseId.materials', {
+  getAllowedIds: () => myCourses.value.map(c => c.id),
+  defaultValue: null, // All my courses
+})
 
 const courseOptions = computed(() =>
   myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` }))
