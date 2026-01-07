@@ -30,9 +30,18 @@ const pickedCourseIds = ref([...(profile.value.courseIds || [])])
 // Carryover search
 const courseQuery = ref('')
 
-// page-level load state (prevents "error flash" before content loads)
-const pageLoading = ref(true)
-const pageLoadError = ref('')
+// --- Core page gate (only for absolutely critical boot) ---
+const coreLoading = ref(true)
+const coreLoadError = ref('')
+
+// --- Section-level fetch states (lets page render while these complete) ---
+const progressLoading = ref(true)
+const progressLoadError = ref('')
+
+const coursesLoading = ref(true)
+const coursesLoadError = ref('')
+
+const deptCoursesLoadError = ref('')
 
 // action-level state
 const busy = ref(false)
@@ -102,8 +111,12 @@ const levelOptions = [
   { value: 600, label: '600 Level' },
 ]
 
-const facultyOptions = computed(() => (catalog.faculties || []).map((f) => ({ value: f.id, label: f.name })))
-const departmentOptions = computed(() => (catalog.departments || []).map((d) => ({ value: d.id, label: d.name })))
+const facultyOptions = computed(() =>
+  (catalog.faculties || []).map((f) => ({ value: f.id, label: f.name }))
+)
+const departmentOptions = computed(() =>
+  (catalog.departments || []).map((d) => ({ value: d.id, label: d.name }))
+)
 
 const displayFaculty = computed(() => {
   const v = facultyId.value
@@ -163,9 +176,15 @@ function clearInline() {
 }
 
 async function refreshDeptCourses() {
+  deptCoursesLoadError.value = ''
   catalog.deptCourses = []
   if (!departmentId.value) return
-  await catalog.fetchDeptCourses({ departmentId: departmentId.value, level: Number(level.value) || 0 })
+  try {
+    await catalog.fetchDeptCourses({ departmentId: departmentId.value, level: Number(level.value) || 0 })
+  } catch (e) {
+    deptCoursesLoadError.value = e?.message || 'Failed to load department courses.'
+    throw e
+  }
 }
 
 watch(facultyId, async (next) => {
@@ -312,7 +331,7 @@ async function logout() {
   router.push('/auth/login')
 }
 
-// --- Upload / course rep workflow (perfected) ---
+// --- Upload / course rep workflow ---
 const hasStudySetup = computed(() => {
   const n = (fullName.value || '').trim()
   return !!n && !!facultyId.value && !!departmentId.value && !!level.value
@@ -381,7 +400,7 @@ async function fetchRepStatus() {
     repInfo.value = normalizeRepInfo(res)
   } catch (e) {
     repInfo.value = null
-    repError.value = ''
+    repError.value = '' // silent fail by design
   } finally {
     repBusy.value = false
   }
@@ -434,7 +453,6 @@ const repHint = computed(() => {
 })
 
 async function goRepRequest() {
-  // IMPORTANT: use inlineError (not page errors), and clear first
   inlineError.value = ''
 
   if (!hasStudySetup.value) {
@@ -486,28 +504,80 @@ const baseVisible = computed(() => {
   return list.slice(0, 6)
 })
 
-// --- page init (retry-friendly) ---
+// --- page init (now: core gate + section-level loading) ---
 async function initPage() {
-  pageLoadError.value = ''
-  pageLoading.value = true
+  coreLoadError.value = ''
+  coreLoading.value = true
+
   // Clear inline errors so old errors don't show before content is ready
   inlineError.value = ''
   savedOk.value = false
 
+  // reset section states
+  progressLoading.value = true
+  progressLoadError.value = ''
+  coursesLoading.value = true
+  coursesLoadError.value = ''
+  deptCoursesLoadError.value = ''
+
   try {
+    // 1) Core: faculties/bootstrapping (critical). If this fails, block the page.
     await catalog.bootstrap()
-    await catalog.fetchCourses()
-    await data.fetchProgress()
 
-    if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
-    await refreshDeptCourses()
-    prevBaseIds.value = [...baseCourseIds.value]
+    // show the real page shell as soon as core is ready
+    coreLoading.value = false
 
-    await fetchRepStatus()
+    // 2) Kick off non-critical loads; render while they run
+    // Courses
+    ;(async () => {
+      try {
+        await catalog.fetchCourses()
+      } catch (e) {
+        coursesLoadError.value = e?.message || 'Failed to load courses.'
+      } finally {
+        coursesLoading.value = false
+      }
+    })()
+
+    // Progress
+    ;(async () => {
+      try {
+        await data.fetchProgress()
+      } catch (e) {
+        progressLoadError.value = e?.message || 'Failed to load your progress.'
+      } finally {
+        progressLoading.value = false
+      }
+    })()
+
+    // Departments (if faculty is already known)
+    ;(async () => {
+      try {
+        if (facultyId.value) await catalog.fetchDepartments({ facultyId: facultyId.value })
+      } catch (e) {
+        // don't block; show inline only
+        inlineError.value = e?.message || 'Failed to load departments.'
+      }
+    })()
+
+    // Dept courses (depends on departmentId/level)
+    ;(async () => {
+      try {
+        await refreshDeptCourses()
+        prevBaseIds.value = [...baseCourseIds.value]
+      } catch {
+        // refreshDeptCourses sets deptCoursesLoadError
+      }
+    })()
+
+    // Rep status
+    ;(async () => {
+      await fetchRepStatus()
+    })()
   } catch (e) {
-    pageLoadError.value = e?.message || 'Failed to load your profile data. Please retry.'
-  } finally {
-    pageLoading.value = false
+    // critical failure
+    coreLoadError.value = e?.message || 'Failed to load your account data. Please retry.'
+    coreLoading.value = false
   }
 }
 
@@ -516,25 +586,35 @@ onMounted(initPage)
 
 <template>
   <div class="page">
-    <!-- Page loading / error gate -->
-    <AppCard v-if="pageLoading" class="max-w-4xl mx-auto">
+    <!-- Core loading / error gate -->
+    <AppCard v-if="coreLoading" class="max-w-4xl mx-auto">
       <div class="kicker">Account</div>
       <div class="h1 mt-1">Profile</div>
-      <p class="sub mt-2">Loading your profile…</p>
+      <p class="sub mt-2">Loading your account & study settings…</p>
+
+      <!-- Skeleton that better matches the real page shape -->
+      <div class="mt-4 flex flex-wrap gap-2">
+        <div class="skeleton h-8 w-24 rounded-full" />
+        <div class="skeleton h-8 w-28 rounded-full" />
+        <div class="skeleton h-8 w-24 rounded-full" />
+        <div class="skeleton h-8 w-20 rounded-full" />
+      </div>
+
       <div class="mt-5 grid gap-3 sm:grid-cols-4">
         <div class="skeleton h-24 rounded-xl" />
         <div class="skeleton h-24 rounded-xl" />
         <div class="skeleton h-24 rounded-xl" />
         <div class="skeleton h-24 rounded-xl" />
       </div>
-      <div class="mt-4 skeleton h-10 rounded-xl" />
-      <div class="mt-3 skeleton h-10 rounded-xl" />
+
+      <div class="mt-6 skeleton h-12 rounded-xl" />
+      <div class="mt-3 skeleton h-36 rounded-xl" />
     </AppCard>
 
-    <AppCard v-else-if="pageLoadError" class="max-w-3xl mx-auto">
+    <AppCard v-else-if="coreLoadError" class="max-w-3xl mx-auto">
       <div class="kicker">Account</div>
       <div class="h1 mt-1">Profile</div>
-      <div class="alert alert-danger mt-4" role="alert">{{ pageLoadError }}</div>
+      <div class="alert alert-danger mt-4" role="alert">{{ coreLoadError }}</div>
       <div class="mt-4 flex flex-wrap gap-2">
         <AppButton class="btn-primary" @click="initPage">Retry</AppButton>
         <RouterLink to="/dashboard" class="btn btn-ghost">Back to dashboard</RouterLink>
@@ -594,18 +674,12 @@ onMounted(initPage)
           </div>
 
           <div class="mt-4 flex flex-wrap gap-2">
-            <button
-              v-for="l in quickLinks"
-              :key="l.id"
-              type="button"
-              class="chip"
-              @click="scrollToId(l.id)"
-            >
+            <button v-for="l in quickLinks" :key="l.id" type="button" class="chip" @click="scrollToId(l.id)">
               {{ l.label }}
             </button>
           </div>
 
-          <!-- IMPORTANT: loading-first rendering (prevents error flashing) -->
+          <!-- Inline notices -->
           <div v-if="savedOk" class="alert alert-ok mt-4" role="status">
             Saved successfully. Your study settings will stay after reload.
           </div>
@@ -614,7 +688,6 @@ onMounted(initPage)
           <div class="divider my-5" />
 
           <!-- Overview tiles -->
-          <!-- FIX: Force more padding so text doesn't hug the border -->
           <div class="grid gap-3 sm:grid-cols-4">
             <div class="tile !p-6">
               <div class="text-xs text-text-3 leading-relaxed">Full name</div>
@@ -636,7 +709,9 @@ onMounted(initPage)
               <div class="text-xs text-text-3 leading-relaxed">Level</div>
               <div class="mt-2 font-semibold leading-snug">{{ displayLevel }}</div>
               <div class="mt-3 text-xs text-text-3 leading-relaxed">
-                Courses: <b class="text-text-2">{{ selectedCourseIds.length }}</b>
+                Courses:
+                <b class="text-text-2">{{ baseCourseIds.length ? selectedCourseIds.length : '—' }}</b>
+                <span v-if="catalog.loading?.deptCourses" class="ml-2 text-xs text-text-3">Loading…</span>
               </div>
             </div>
 
@@ -677,6 +752,12 @@ onMounted(initPage)
               </div>
             </div>
           </div>
+
+          <!-- Soft warnings (non-blocking) -->
+          <div v-if="coursesLoadError || progressLoadError" class="mt-4">
+            <div v-if="coursesLoadError" class="alert alert-danger" role="alert">{{ coursesLoadError }}</div>
+            <div v-if="progressLoadError" class="alert alert-danger mt-2" role="alert">{{ progressLoadError }}</div>
+          </div>
         </div>
       </AppCard>
 
@@ -692,7 +773,13 @@ onMounted(initPage)
 
         <div class="divider my-4" />
 
-        <div class="grid gap-4 sm:grid-cols-3">
+        <div v-if="progressLoading" class="grid gap-4 sm:grid-cols-3">
+          <div class="skeleton h-40 rounded-xl" />
+          <div class="skeleton h-40 rounded-xl" />
+          <div class="skeleton h-40 rounded-xl" />
+        </div>
+
+        <div v-else class="grid gap-4 sm:grid-cols-3">
           <div class="card card-pad border border-border/70 bg-surface/60">
             <div class="text-sm font-semibold">Daily goal</div>
             <p class="sub mt-1">How many questions you want to answer today.</p>
@@ -722,10 +809,7 @@ onMounted(initPage)
               Today: <b>{{ progressTodayAnswered }}</b> / {{ progressDailyGoal }}
             </div>
             <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
-              <div
-                class="h-full bg-accent transition-all duration-200"
-                :style="{ width: progressPct + '%' }"
-              />
+              <div class="h-full bg-accent transition-all duration-200" :style="{ width: progressPct + '%' }" />
             </div>
           </div>
 
@@ -942,6 +1026,10 @@ onMounted(initPage)
               </div>
               <div class="text-xs text-text-3 mt-1">Auto-added (locked)</div>
             </div>
+          </div>
+
+          <div v-if="deptCoursesLoadError" class="alert alert-danger mt-3" role="alert">
+            {{ deptCoursesLoadError }}
           </div>
 
           <div v-if="baseCourses.length > 6" class="mt-3">
