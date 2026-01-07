@@ -56,6 +56,8 @@ function fmtTime(seconds) {
   const ss = String(s % 60).padStart(2, '0')
   return `${m}:${ss}`
 }
+
+const isMe = (row) => row.userId === (auth.user?.id || auth.user?.userId)
 </script>
 
 <template>
@@ -66,9 +68,11 @@ function fmtTime(seconds) {
           <div class="h1">Weekly Leaderboard</div>
           <p class="sub mt-1">Ranks reset every week (Mon–Sun). Practice more to climb.</p>
 
+          <!-- Me card: 2 cols on mobile, 4 on desktop -->
           <div v-if="board?.me" class="mt-4 card card-pad">
             <div class="text-sm font-extrabold">You</div>
-            <div class="mt-2 grid grid-cols-4 gap-2 text-center">
+
+            <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
               <div class="chip">
                 <div class="text-xs text-text-3">Rank</div>
                 <div class="text-base font-extrabold">#{{ board.me.rank }}</div>
@@ -120,16 +124,25 @@ function fmtTime(seconds) {
             v-for="row in board.items"
             :key="row.userId"
             class="card card-pad"
-            :class="row.userId === (auth.user?.id || auth.user?.userId) ? 'ring-1 ring-white/10 bg-white/[0.04]' : ''"
+            :class="isMe(row) ? 'ring-1 ring-white/10 bg-white/[0.04]' : ''"
           >
-            <div class="flex items-center justify-between gap-3">
+            <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <div class="text-sm font-extrabold truncate">#{{ row.rank }} • {{ row.name }}</div>
-                <div class="text-xs text-text-3 mt-1">
-                  {{ row.correct }} correct • {{ row.attempts }} attempts • {{ fmtTime(row.seconds) }}
+                <!-- FIX: force long names/emails to wrap instead of overflowing -->
+                <div class="leader-name text-sm font-extrabold leading-snug">
+                  #{{ row.rank }} • {{ row.name }}
+                </div>
+
+                <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-3">
+                  <span class="meta-pill">{{ row.correct }} correct</span>
+                  <span class="meta-pill">{{ row.attempts }} attempts</span>
+                  <span class="meta-pill">{{ fmtTime(row.seconds) }}</span>
                 </div>
               </div>
-              <div class="badge">{{ row.correct }}</div>
+
+              <div class="score-badge" aria-label="Correct answers">
+                {{ row.correct }}
+              </div>
             </div>
           </div>
         </div>
@@ -137,3 +150,40 @@ function fmtTime(seconds) {
     </AppCard>
   </div>
 </template>
+
+<style scoped>
+/* ✅ This is the key fix: emails/long tokens won't overflow anymore */
+.leader-name {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere; /* breaks long emails nicely */
+  word-break: break-word;  /* fallback */
+  overflow: hidden;
+
+  /* 2-line clamp (works even with long emails now) */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Reusable small pills for row meta */
+.meta-pill {
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.06);
+  line-height: 1rem;
+  white-space: nowrap;
+}
+
+/* Bigger, consistent score badge on mobile */
+.score-badge {
+  min-width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 0.9rem;
+  background: rgba(0, 0, 0, 0.08);
+}
+</style>
