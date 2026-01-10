@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
+import { storage } from '../utils/storage'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { useContentStore } from '../stores/content'
@@ -15,6 +16,7 @@ import { useRememberedCourseId } from '../composables/useRememberedCourseId'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const catalog = useCatalogStore()
 const content = useContentStore()
 const data = useDataStore()
@@ -22,6 +24,31 @@ const ai = useAiStore()
 
 const profile = computed(() => auth.user?.profile || {})
 const progress = computed(() => data.progress || {})
+
+// Tabs: Objective (MCQ) vs Theory (writing)
+const tab = ref(
+  route.query.tab === 'theory'
+    ? 'theory'
+    : storage.get('practiceTab', 'objective')
+)
+
+watch(
+  () => route.query.tab,
+  (v) => {
+    const next = v === 'theory' ? 'theory' : 'objective'
+    if (tab.value !== next) tab.value = next
+  }
+)
+
+watch(tab, (t) => {
+  storage.set('practiceTab', t)
+  const q = { ...(route.query || {}) }
+  if (t === 'theory') q.tab = 'theory'
+  else delete q.tab
+  router.replace({ query: q })
+})
+
+const isTheoryTab = computed(() => tab.value === 'theory')
 
 const query = ref('')
 
@@ -33,15 +60,15 @@ const aiError = ref('')
 const duelBusy = ref({})
 
 const myCourses = computed(() =>
-  (catalog.courses || []).filter(c => (profile.value.courseIds || []).includes(c.id))
+  (catalog.courses || []).filter((c) => (profile.value.courseIds || []).includes(c.id))
 )
 const courseOptions = computed(() =>
-  myCourses.value.map(c => ({ value: c.id, label: `${c.code} (${c.level})` }))
+  myCourses.value.map((c) => ({ value: c.id, label: `${c.code} (${c.level})` }))
 )
 
 // UX: remember last selected course instead of defaulting to the first one.
 const selectedCourseId = useRememberedCourseId('lastCourseId.practice', {
-  getAllowedIds: () => myCourses.value.map(c => c.id),
+  getAllowedIds: () => myCourses.value.map((c) => c.id),
   defaultValue: null, // All my courses
 })
 
@@ -56,9 +83,17 @@ onMounted(async () => {
 
 const banks = computed(() => {
   const list = content.banks || []
+
+  // Filter by tab
+  const filteredByMode = list.filter((b) => {
+    const mode = String(b?.mode || 'mcq').toLowerCase()
+    return isTheoryTab.value ? mode === 'theory' : mode !== 'theory'
+  })
+
+  // Filter by search query
   const q = query.value.trim().toLowerCase()
-  if (!q) return list
-  return list.filter((b) => {
+  if (!q) return filteredByMode
+  return filteredByMode.filter((b) => {
     const hay = [b.title, bankMeta(b).label].filter(Boolean).join(' ').toLowerCase()
     return hay.includes(q)
   })
@@ -66,22 +101,46 @@ const banks = computed(() => {
 
 const bankLabel = (b) => bankMeta(b).label
 
-// ✅ Improvement: show per-bank progress + accuracy (uses cached bankStats from the API)
+// Progress label per bank
 function bankProgress(b) {
+  const mode = String(b?.mode || 'mcq').toLowerCase()
+  const total = Number(b?.questionCount || 0)
+
+  if (mode === 'theory') {
+    const stats = data.theoryAnswers?.[b?.id] || {}
+    const attempted = Number(stats.attemptedCount || 0)
+    const completion = total ? Math.round((attempted / total) * 100) : 0
+    const avgScore = typeof stats.avgScore === 'number' ? stats.avgScore : null
+
+    return {
+      mode: 'theory',
+      answered: attempted,
+      total,
+      completion,
+      avgScore,
+    }
+  }
+
+  // MCQ banks
   const stats = data.answers?.[b?.id] || { answeredIds: [], correctIds: [] }
   const answered = Array.isArray(stats.answeredIds) ? stats.answeredIds.length : 0
   const correct = Array.isArray(stats.correctIds) ? stats.correctIds.length : 0
-  const total = Number(b?.questionCount || 0)
   const accuracy = answered ? Math.round((correct / answered) * 100) : 0
   const completion = total ? Math.round((answered / total) * 100) : 0
-  return { answered, correct, total, accuracy, completion }
+
+  return { mode: 'mcq', answered, correct, total, accuracy, completion }
 }
 
 function bankProgressLabel(b) {
   const p = bankProgress(b)
   if (!p.answered) return 'Not started'
-  const total = p.total || Number(b?.questionCount || 0)
-  return `${p.answered}/${total} answered • ${p.accuracy}%`
+
+  if (p.mode === 'theory') {
+    const avg = typeof p.avgScore === 'number' ? p.avgScore.toFixed(1) : '—'
+    return `${p.answered}/${p.total} attempted • Avg ${avg}/5`
+  }
+
+  return `${p.answered}/${p.total} answered • ${p.accuracy}%`
 }
 
 const goalPct = computed(() => {
@@ -89,6 +148,23 @@ const goalPct = computed(() => {
   const done = Number(progress.value?.todayAnswered || 0)
   if (!goal) return 0
   return Math.max(0, Math.min(100, Math.round((done / goal) * 100)))
+})
+
+const theoryAvgLabel = computed(() => {
+  const stats = Object.values(data.theoryAnswers || {})
+  let sum = 0
+  let n = 0
+  for (const s of stats) {
+    const cnt = Number(s?.attemptedCount || 0)
+    const avg = typeof s?.avgScore === 'number' ? s.avgScore : null
+    if (cnt > 0 && avg !== null) {
+      sum += avg * cnt
+      n += cnt
+    }
+  }
+  if (!n) return '—'
+  const val = sum / n
+  return `${val.toFixed(1)}/5`
 })
 
 async function generateAiBank() {
@@ -131,17 +207,58 @@ async function challengeFriend(bankId) {
       <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div class="min-w-0">
           <div class="h1">Practice</div>
-          <p class="sub mt-1">Quick drills to boost recall and exam confidence.</p>
+          <p class="sub mt-1">
+            <span v-if="!isTheoryTab">Quick drills to boost recall and exam confidence.</span>
+            <span v-else>Write answers, compare with a model guide, and self-score (0–5).</span>
+          </p>
+
+          <!-- Mode tabs -->
+          <div class="mt-3 flex gap-2">
+            <button
+              type="button"
+              class="btn btn-sm h-10"
+              :class="!isTheoryTab ? 'btn-primary' : 'btn-ghost'"
+              @click="tab = 'objective'"
+            >
+              Objective
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm h-10"
+              :class="isTheoryTab ? 'btn-primary' : 'btn-ghost'"
+              @click="tab = 'theory'"
+            >
+              Theory
+            </button>
+          </div>
 
           <!-- Stats: comfortable on mobile -->
           <div class="mt-4 grid grid-cols-3 gap-2">
             <StatPill label="Streak" :value="progress?.streak ?? 0" />
-            <StatPill label="Accuracy" :value="(progress?.accuracy ?? 0) + '%'" />
-            <StatPill label="Answered" :value="progress?.totalAnswered ?? 0" />
+            <StatPill
+              v-if="!isTheoryTab"
+              label="Accuracy"
+              :value="(progress?.accuracy ?? 0) + '%'"
+            />
+            <StatPill
+              v-else
+              label="Theory today"
+              :value="progress?.todayTheoryAnswered ?? 0"
+            />
+            <StatPill
+              v-if="!isTheoryTab"
+              label="Answered"
+              :value="progress?.totalAnswered ?? 0"
+            />
+            <StatPill
+              v-else
+              label="Avg score"
+              :value="theoryAvgLabel"
+            />
           </div>
 
           <!-- Today card -->
-          <div class="mt-4 card card-pad">
+          <div v-if="!isTheoryTab" class="mt-4 card card-pad">
             <div class="flex items-center justify-between text-sm font-semibold">
               <span>Today</span>
               <span class="text-text-2">Level {{ progress?.level ?? 0 }} • {{ progress?.xp ?? 0 }} XP</span>
@@ -166,15 +283,41 @@ async function challengeFriend(bankId) {
             </div>
           </div>
 
+          <div v-else class="mt-4 card card-pad">
+            <div class="flex items-center justify-between text-sm font-semibold">
+              <span>Today (Theory)</span>
+              <span class="text-text-2">Level {{ progress?.level ?? 0 }} • {{ progress?.xp ?? 0 }} XP</span>
+            </div>
+
+            <div class="mt-2 flex items-center justify-between text-xs text-text-3">
+              <span>Theory attempts</span>
+              <span>{{ progress?.todayTheoryAnswered ?? 0 }}</span>
+            </div>
+
+            <div class="mt-2 flex items-center justify-between text-xs text-text-3">
+              <span>Study time</span>
+              <span>{{ Math.round((progress?.studySeconds ?? 0) / 60) }} min</span>
+            </div>
+
+            <p class="help mt-2">
+              Tip: After you write your answer, tap “Reveal guide”, then self-score and save your attempt.
+            </p>
+          </div>
+
           <!-- Quick links: scroll on mobile (prevents cramped multi-line buttons) -->
           <div class="mt-3 -mx-4 px-4 overflow-x-auto sm:mx-0 sm:px-0">
             <div class="btn-row">
-              <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/practice/review')">
+              <button
+                v-if="!isTheoryTab"
+                type="button"
+                class="btn btn-ghost btn-sm h-11 whitespace-nowrap"
+                @click="router.push('/practice/review')"
+              >
                 Smart Review
                 <span v-if="progress?.dueReviews" class="badge ml-2">{{ progress.dueReviews }}</span>
               </button>
               <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/progress')">Progress</button>
-              <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/exam')">Exam Mode</button>
+              <button v-if="!isTheoryTab" type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/exam')">Exam Mode</button>
               <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/leaderboard')">Leaderboard</button>
             </div>
           </div>
@@ -202,8 +345,8 @@ async function challengeFriend(bankId) {
       <div v-if="content.error" class="alert alert-warn mt-4" role="alert">{{ content.error }}</div>
     </AppCard>
 
-    <!-- AI Generator -->
-    <AppCard>
+    <!-- AI Generator (Objective only) -->
+    <AppCard v-if="!isTheoryTab">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <div class="h2">AI quick quiz</div>
@@ -258,7 +401,9 @@ async function challengeFriend(bankId) {
 
     <AppCard v-else-if="banks.length === 0">
       <div class="h2">No banks found</div>
-      <p class="sub mt-1">Try selecting a different course, or check back later as new banks are added.</p>
+      <p class="sub mt-1">
+        Try selecting a different course, or check back later as new banks are added.
+      </p>
     </AppCard>
 
     <div v-else class="grid gap-3">
@@ -289,13 +434,14 @@ async function challengeFriend(bankId) {
           <!-- Actions: 2-column on mobile, inline on desktop -->
           <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <RouterLink
-              :to="`/practice/${b.id}`"
+              :to="String(b.mode || 'mcq').toLowerCase() === 'theory' ? `/theory/${b.id}` : `/practice/${b.id}`"
               class="btn btn-primary btn-sm w-full sm:w-auto h-11 justify-center"
             >
-              Start practice
+              {{ String(b.mode || 'mcq').toLowerCase() === 'theory' ? 'Start theory' : 'Start practice' }}
             </RouterLink>
 
             <button
+              v-if="String(b.mode || 'mcq').toLowerCase() !== 'theory'"
               type="button"
               class="btn btn-ghost btn-sm w-full sm:w-auto h-11 justify-center"
               :disabled="!!duelBusy[b.id]"

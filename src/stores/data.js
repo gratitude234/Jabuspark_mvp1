@@ -16,6 +16,7 @@ const seed = () => ({
     dailyGoal: 10,
     todayAnswered: 0,
     todayCorrect: 0,
+    todayTheoryAnswered: 0,
     xp: 0,
     level: 1,
     badges: [],
@@ -31,6 +32,9 @@ const seed = () => ({
     lastAttemptAt: null,
   },
   answers: {}, // { [bankId]: { answeredIds:[], correctIds:[] } }
+  theoryAnswers: {}, // { [bankId]: { attemptedCount, avgScore, lastAttemptAt } }
+  theoryAttempts: {}, // { [bankId]: attempt[] }
+  theoryLatest: {}, // { [bankId]: { [questionId]: latestAttempt } }
   courseProgress: [],
   courseTrends: {}, // { [courseId]: [{date,attempts,accuracy}] }
   reviewQueue: [],
@@ -61,8 +65,10 @@ export const useDataStore = defineStore('data', {
       // prefer server, fallback to storage if offline
       const cached = storage.get('progress', null)
       const cachedAns = storage.get('answers', null)
+      const cachedTheory = storage.get('theoryAnswers', null)
       if (cached) this.progress = cached
       if (cachedAns) this.answers = cachedAns
+      if (cachedTheory) this.theoryAnswers = cachedTheory
 
       await this.fetchProgress()
       // Missions is optional; ignore if backend migration isn't on server yet.
@@ -76,8 +82,10 @@ export const useDataStore = defineStore('data', {
         const res = await apiFetch('/progress')
         this.progress = res?.data?.progress || seed().progress
         this.answers = res?.data?.answers || {}
+        this.theoryAnswers = res?.data?.theoryAnswers || {}
         storage.set('progress', this.progress)
         storage.set('answers', this.answers)
+        storage.set('theoryAnswers', this.theoryAnswers)
       } catch (e) {
         this.error = e?.message || 'Failed to load progress'
         // keep cached data if available
@@ -234,6 +242,79 @@ export const useDataStore = defineStore('data', {
       delete next[bankId]
       this.answers = next
       storage.set('answers', this.answers)
+      return true
+    },
+
+    // ----------------------------
+    // Theory (writing practice)
+    // ----------------------------
+    async fetchTheoryAttempts({ bankId, questionId = '', limit = 80 } = {}) {
+      const qs = new URLSearchParams({ bankId: String(bankId || ''), limit: String(limit) })
+      if (questionId) qs.set('questionId', String(questionId))
+      const res = await apiFetch(`/theory/attempts?${qs.toString()}`)
+      const attempts = res?.data?.attempts || []
+      const latestByQuestion = res?.data?.latestByQuestion || {}
+
+      this.theoryAttempts = { ...this.theoryAttempts, [bankId]: attempts }
+      this.theoryLatest = { ...this.theoryLatest, [bankId]: latestByQuestion }
+
+      const bankStats = res?.data?.bankStats
+      if (bankStats) {
+        this.theoryAnswers = { ...this.theoryAnswers, [bankId]: bankStats }
+        storage.set('theoryAnswers', this.theoryAnswers)
+      }
+
+      return { attempts, latestByQuestion, bankStats }
+    },
+
+    async submitTheoryAttempt({ bankId, questionId, answerText, selfScore = null, secondsSpent = 0 } = {}) {
+      const res = await apiFetch('/theory/submit', {
+        method: 'POST',
+        body: { bankId, questionId, answerText, selfScore, secondsSpent },
+      })
+
+      const p = res?.data?.progress
+      if (p) this.applyProgress(p)
+
+      const bankStats = res?.data?.bankStats
+      if (bankStats) {
+        this.theoryAnswers = { ...this.theoryAnswers, [bankId]: bankStats }
+        storage.set('theoryAnswers', this.theoryAnswers)
+      }
+
+      // Update local latest cache optimistically (no extra fetch)
+      const latest = {
+        attemptId: res?.data?.result?.attemptId || '',
+        questionId: String(questionId || ''),
+        answerText: String(answerText || ''),
+        selfScore: selfScore === null || selfScore === '' ? null : Number(selfScore),
+        secondsSpent: Number(secondsSpent || 0),
+        createdAt: new Date().toISOString(),
+      }
+      const currentLatest = this.theoryLatest?.[bankId] || {}
+      this.theoryLatest = { ...this.theoryLatest, [bankId]: { ...currentLatest, [questionId]: latest } }
+
+      const rxp = Number(res?.data?.rewards?.xp || 0)
+      if (rxp) toast(`+${rxp} XP`, 'ok')
+
+      return res?.data
+    },
+
+    async resetTheoryBank(bankId) {
+      await apiFetch('/theory/reset', { method: 'POST', body: { bankId } })
+
+      const ta = { ...this.theoryAttempts }
+      delete ta[bankId]
+      this.theoryAttempts = ta
+
+      const tl = { ...this.theoryLatest }
+      delete tl[bankId]
+      this.theoryLatest = tl
+
+      const nextStats = { ...this.theoryAnswers }
+      delete nextStats[bankId]
+      this.theoryAnswers = nextStats
+      storage.set('theoryAnswers', this.theoryAnswers)
       return true
     },
 

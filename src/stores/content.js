@@ -18,7 +18,7 @@ export const useContentStore = defineStore('content', {
       pastQuestions: false,
       materials: false,
     },
-    error: null
+    error: null,
   }),
   actions: {
     async fetchBanks({ courseId = '' } = {}) {
@@ -34,20 +34,41 @@ export const useContentStore = defineStore('content', {
         this.loading.banks = false
       }
     },
+
     async fetchBank(bankId) {
       this.loading.bank = true
       this.error = null
       try {
         const res = await apiFetch(`/banks/${encodeURIComponent(bankId)}`)
         const bank = res?.data?.bank || null
+
+        const mode = String(bank?.mode || 'mcq').toLowerCase()
+
         if (bank?.questions?.length) {
-          bank.questions = bank.questions.map((q) => ({
-            ...q,
-            answerIndex: typeof q.answerIndex === 'string' ? Number(q.answerIndex) : q.answerIndex,
-            question: q.question ?? q.prompt ?? '',
-            explanation: q.explanation ?? q.explain ?? '',
-          }))
+          if (mode === 'theory') {
+            bank.questions = bank.questions.map((q) => ({
+              ...q,
+              question: q.question ?? q.prompt ?? '',
+              prompt: q.prompt ?? q.question ?? '',
+              guide: q.guide ?? q.modelAnswer ?? q.answer ?? '',
+              points: Array.isArray(q.points)
+                ? q.points
+                : Array.isArray(q.markingPoints)
+                ? q.markingPoints
+                : [],
+              sortOrder: typeof q.sortOrder === 'string' ? Number(q.sortOrder) : (q.sortOrder ?? 1),
+            }))
+          } else {
+            // MCQ banks (existing behaviour)
+            bank.questions = bank.questions.map((q) => ({
+              ...q,
+              answerIndex: typeof q.answerIndex === 'string' ? Number(q.answerIndex) : q.answerIndex,
+              question: q.question ?? q.prompt ?? '',
+              explanation: q.explanation ?? q.explain ?? '',
+            }))
+          }
         }
+
         this.bank = bank
       } catch (e) {
         this.error = e?.message || 'Failed to load bank'
@@ -56,6 +77,7 @@ export const useContentStore = defineStore('content', {
         this.loading.bank = false
       }
     },
+
     async fetchPastQuestions({ courseId = '' } = {}) {
       this.loading.pastQuestions = true
       this.error = null
@@ -70,6 +92,7 @@ export const useContentStore = defineStore('content', {
         this.loading.pastQuestions = false
       }
     },
+
     async fetchMaterials({ courseId = '' } = {}) {
       this.loading.materials = true
       this.error = null
@@ -83,6 +106,6 @@ export const useContentStore = defineStore('content', {
       } finally {
         this.loading.materials = false
       }
-    }
-  }
+    },
+  },
 })

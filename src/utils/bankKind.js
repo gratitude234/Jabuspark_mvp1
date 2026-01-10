@@ -1,8 +1,8 @@
 /**
  * Bank categorisation helper.
  *
- * Why: your backend banks may not provide `mode` yet.
- * We derive a stable "kind" for UI filters (Quick / Exam / PastQ)
+ * Why: your backend banks may not provide perfect categorisation.
+ * We derive a stable "kind" for UI filters (Theory / Quick / Exam / PastQ / Practice)
  * using (in order): explicit fields -> tags -> title heuristics.
  */
 
@@ -13,7 +13,7 @@ function toArray(v) {
     // allow comma-separated tags: "quick, exam"
     return v
       .split(',')
-      .map(s => s.trim())
+      .map((s) => s.trim())
       .filter(Boolean)
   }
   return [v]
@@ -35,10 +35,16 @@ function haystack(bank) {
 }
 
 /**
- * Returns one of: 'quick' | 'exam' | 'pastq' | 'practice'
+ * Returns one of: 'theory' | 'quick' | 'exam' | 'pastq' | 'practice'
  */
 export function bankKind(bank) {
+  const explicitMode = String(bank?.mode || '').toLowerCase()
+  if (explicitMode === 'theory') return 'theory'
+
   const h = haystack(bank)
+
+  // Theory writing
+  if (/\btheory\b/.test(h)) return 'theory'
 
   // Past questions
   if (/(pastq|past\s*question|past\s*questions|\bpq\b)/.test(h)) return 'pastq'
@@ -54,6 +60,8 @@ export function bankKind(bank) {
 
 export function bankKindLabel(kind) {
   switch (kind) {
+    case 'theory':
+      return 'Theory'
     case 'quick':
       return 'Quick'
     case 'exam':

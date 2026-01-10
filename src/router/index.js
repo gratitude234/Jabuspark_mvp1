@@ -40,6 +40,9 @@ import AdminUploadLogs from '../pages/AdminUploadLogs.vue'
 // ✅ Practice home (so /practice is a real page)
 import PracticeHome from '../pages/PracticeHome.vue'
 
+// ✅ NEW: Theory writing practice
+import TheoryTake from '../pages/TheoryTake.vue'
+
 // ✅ NEW
 import Saved from '../pages/Saved.vue'
 
@@ -92,6 +95,9 @@ const routes = [
       { path: 'practice', component: PracticeHome, meta: { title: 'Practice' } },
       { path: 'practice/review', component: Review, meta: { title: 'Smart Review' } },
       { path: 'practice/:bankId', component: Practice, props: true, meta: { title: 'Practice' } },
+
+      // Theory writing practice
+      { path: 'theory/:bankId', component: TheoryTake, props: true, meta: { title: 'Theory Practice' } },
 
       // ✅ NEW
       { path: 'saved', component: Saved, meta: { title: 'Saved' } },
