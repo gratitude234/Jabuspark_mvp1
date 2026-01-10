@@ -24,6 +24,11 @@ const seed = () => ({
     saved: { pastQuestions: [], materials: [], questions: [] },
     notifyUnread: 0,
     missionsClaimable: 0,
+
+    // Resume helpers (server-provided)
+    lastBankId: null,
+    lastQuestionId: null,
+    lastAttemptAt: null,
   },
   answers: {}, // { [bankId]: { answeredIds:[], correctIds:[] } }
   courseProgress: [],

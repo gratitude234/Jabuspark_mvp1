@@ -6,6 +6,7 @@ import { useDataStore } from '../stores/data'
 import { useAiStore } from '../stores/ai'
 import AppCard from '../components/AppCard.vue'
 import AppButton from '../components/AppButton.vue'
+import { toast } from '../utils/toast'
 
 const route = useRoute()
 const router = useRouter()
@@ -100,6 +101,9 @@ const questions = computed(() => bank.value?.questions || [])
 const totalInSession = computed(() => sessionQuestions.value.length || 0)
 const current = computed(() => sessionQuestions.value[qIndex.value] || null)
 
+// ✅ Deep link support: /practice/:bankId?qid=<questionId>
+const jumpQuestionId = computed(() => String(route.query.qid || '').trim())
+
 const bankStats = computed(() => data.answers?.[bankId.value] || { answeredIds: [], correctIds: [] })
 const answeredCount = computed(() => bankStats.value.answeredIds?.length || 0)
 const correctCount = computed(() => bankStats.value.correctIds?.length || 0)
@@ -168,6 +172,50 @@ function buildSessionQuestions() {
 
   sessionQuestions.value = q
   if (qIndex.value >= q.length) qIndex.value = 0
+
+  // Apply deep-link jump if present.
+  applyJumpIfNeeded()
+}
+
+function applyJumpIfNeeded() {
+  const qid = jumpQuestionId.value
+  if (!qid) return
+  if (!Array.isArray(questions.value) || questions.value.length === 0) return
+
+  const idx = (sessionQuestions.value || []).findIndex((qq) => String(qq.id) === qid)
+  if (idx >= 0) {
+    qIndex.value = idx
+
+    // Remove qid from URL once consumed so mode switches don't keep jumping.
+    const next = { ...(route.query || {}) }
+    delete next.qid
+    router.replace({ query: next })
+    return
+  }
+
+  // If a user opens a saved question while in a filtered mode (e.g. "wrong"),
+  // the question may not be in the current session list. Force normal mode once.
+  if (mode.value !== 'normal') {
+    setMode('normal')
+  } else {
+    // Not found even in normal mode; drop the param to avoid loops.
+    const next = { ...(route.query || {}) }
+    delete next.qid
+    router.replace({ query: next })
+  }
+}
+
+const isSavedQuestion = computed(() => !!(current.value?.id && data.isSaved?.('questions', current.value.id)))
+
+async function toggleSaveQuestion() {
+  if (!current.value?.id) return
+  try {
+    const before = isSavedQuestion.value
+    await data.toggleSave('questions', current.value.id)
+    toast(before ? 'Removed from saved questions' : 'Saved question', 'ok')
+  } catch (e) {
+    toast(e?.message || 'Failed to update saved questions', 'warn')
+  }
 }
 
 async function load(id) {
@@ -397,7 +445,19 @@ function backToBanks() {
         Time is up. You can still review your stats, or go back.
       </div>
 
-      <div class="kicker">Question {{ qIndex + 1 }}</div>
+      <div class="flex items-center justify-between gap-2">
+        <div class="kicker">Question {{ qIndex + 1 }}</div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm h-10 whitespace-nowrap"
+          @click="toggleSaveQuestion"
+          :aria-label="isSavedQuestion ? 'Unsave question' : 'Save question'"
+          :title="isSavedQuestion ? 'Unsave question' : 'Save question'"
+        >
+          <span v-if="isSavedQuestion">Saved ★</span>
+          <span v-else>Save ☆</span>
+        </button>
+      </div>
       <div class="mt-1 text-lg sm:text-xl font-extrabold leading-snug">
         {{ current.question }}
       </div>

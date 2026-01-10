@@ -66,6 +66,24 @@ const banks = computed(() => {
 
 const bankLabel = (b) => bankMeta(b).label
 
+// ✅ Improvement: show per-bank progress + accuracy (uses cached bankStats from the API)
+function bankProgress(b) {
+  const stats = data.answers?.[b?.id] || { answeredIds: [], correctIds: [] }
+  const answered = Array.isArray(stats.answeredIds) ? stats.answeredIds.length : 0
+  const correct = Array.isArray(stats.correctIds) ? stats.correctIds.length : 0
+  const total = Number(b?.questionCount || 0)
+  const accuracy = answered ? Math.round((correct / answered) * 100) : 0
+  const completion = total ? Math.round((answered / total) * 100) : 0
+  return { answered, correct, total, accuracy, completion }
+}
+
+function bankProgressLabel(b) {
+  const p = bankProgress(b)
+  if (!p.answered) return 'Not started'
+  const total = p.total || Number(b?.questionCount || 0)
+  return `${p.answered}/${total} answered • ${p.accuracy}%`
+}
+
 const goalPct = computed(() => {
   const goal = Number(progress.value?.dailyGoal || 10)
   const done = Number(progress.value?.todayAnswered || 0)
@@ -261,6 +279,10 @@ async function challengeFriend(bankId) {
             <div class="mt-2 flex flex-wrap items-center gap-2">
               <span class="chip">{{ b.questionCount }} questions</span>
               <span class="chip">{{ bankLabel(b) }}</span>
+              <span class="chip" :class="bankProgress(b).answered ? '' : 'opacity-70'">
+                {{ bankProgressLabel(b) }}
+                <span v-if="bankProgress(b).answered" class="ml-1">• {{ bankProgress(b).completion }}% done</span>
+              </span>
             </div>
           </div>
 

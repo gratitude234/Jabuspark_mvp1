@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useDataStore } from '../stores/data'
+import { toast } from '../utils/toast'
 import AppCard from '../components/AppCard.vue'
 
 const data = useDataStore()
@@ -34,6 +35,9 @@ async function claim(m) {
   claiming.value = m.missionKey
   try {
     await data.claimMission(m.missionKey)
+  } catch (e) {
+    // Surface server errors (otherwise it feels like the button is "unclaimable")
+    toast(e?.message || 'Failed to claim mission.', 'err')
   } finally {
     claiming.value = ''
   }

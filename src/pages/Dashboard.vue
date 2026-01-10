@@ -17,7 +17,27 @@ const hasProfile = computed(() => {
 })
 
 const firstCourseId = computed(() => (profile.value.courseIds || [])[0] || '')
-const quickBank = computed(() => content.banks?.[0] || null)
+
+// ✅ Improvement: "Continue where you left off" (server provides lastBankId + lastQuestionId)
+const lastBankId = computed(() => String(data.progress?.lastBankId || ''))
+const lastQuestionId = computed(() => String(data.progress?.lastQuestionId || ''))
+
+const quickBank = computed(() => {
+  const banks = content.banks || []
+  if (lastBankId.value) {
+    const hit = banks.find(b => String(b.id) === lastBankId.value)
+    if (hit) return hit
+  }
+  return banks?.[0] || null
+})
+
+const resumeLink = computed(() => {
+  if (!quickBank.value) return '/practice'
+  if (lastBankId.value && lastQuestionId.value && String(quickBank.value.id) === lastBankId.value) {
+    return `/practice/${encodeURIComponent(quickBank.value.id)}?qid=${encodeURIComponent(lastQuestionId.value)}`
+  }
+  return `/practice/${encodeURIComponent(quickBank.value.id)}`
+})
 
 const greeting = computed(() => {
   const name = (auth.user?.fullName || 'Student').split(' ')[0]
@@ -139,7 +159,8 @@ onMounted(async () => {
   if (!auth.isAuthed) return
   await Promise.allSettled([
     data.fetchProgress?.(),
-    content.fetchBanks?.({ courseId: firstCourseId.value || '' })
+    // Fetch all banks so "Resume" can find the user's last bank even if it isn't in their first course.
+    content.fetchBanks?.({ courseId: '' })
   ])
 })
 </script>
@@ -235,7 +256,7 @@ onMounted(async () => {
             </div>
 
             <div class="mt-4 flex flex-col sm:flex-row gap-2">
-              <RouterLink :to="quickBank ? `/practice/${quickBank.id}` : '/practice'" class="btn btn-primary btn-lg">
+              <RouterLink :to="resumeLink" class="btn btn-primary btn-lg">
                 {{ quickBank ? 'Resume practice' : 'Start practice' }}
               </RouterLink>
               <RouterLink to="/materials" class="btn btn-ghost btn-lg">Open materials</RouterLink>

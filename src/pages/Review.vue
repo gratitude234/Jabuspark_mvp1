@@ -5,6 +5,7 @@ import { useDataStore } from '../stores/data'
 import { useAiStore } from '../stores/ai'
 import AppCard from '../components/AppCard.vue'
 import AppButton from '../components/AppButton.vue'
+import { toast } from '../utils/toast'
 
 const router = useRouter()
 const data = useDataStore()
@@ -28,6 +29,19 @@ const dueCount = computed(() => questions.value.length)
 const current = computed(() => questions.value[qIndex.value] || null)
 const isDone = computed(() => dueCount.value > 0 && qIndex.value >= dueCount.value)
 
+const isSavedQuestion = computed(() => !!(current.value?.id && data.isSaved?.('questions', current.value.id)))
+
+async function toggleSaveCurrent() {
+  if (!current.value?.id) return
+  try {
+    const before = isSavedQuestion.value
+    await data.toggleSave('questions', current.value.id)
+    toast(before ? 'Removed from saved questions' : 'Saved question', 'ok')
+  } catch (e) {
+    toast(e?.message || 'Failed to update saved questions', 'warn')
+  }
+}
+
 function resetPerQuestion() {
   selected.value = null
   reveal.value = false
@@ -42,6 +56,8 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
+    // Ensure saved list is available for the "Save" toggle state
+    await data.fetchProgress()
     await data.fetchReviewQueue({ limit: 30 })
     qIndex.value = 0
     resetPerQuestion()
@@ -173,7 +189,19 @@ onUnmounted(() => {
         <div class="kicker">
           {{ current.courseCode }} • {{ current.bankTitle }}
         </div>
-        <div class="badge badge-soft">Question {{ qIndex + 1 }} / {{ dueCount }}</div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm h-10 whitespace-nowrap"
+            @click="toggleSaveCurrent"
+            :aria-label="isSavedQuestion ? 'Unsave question' : 'Save question'"
+            :title="isSavedQuestion ? 'Unsave question' : 'Save question'"
+          >
+            <span v-if="isSavedQuestion">Saved ★</span>
+            <span v-else>Save ☆</span>
+          </button>
+          <div class="badge badge-soft">Question {{ qIndex + 1 }} / {{ dueCount }}</div>
+        </div>
       </div>
 
       <div class="mt-1 text-lg sm:text-xl font-extrabold leading-snug">{{ current.prompt }}</div>
