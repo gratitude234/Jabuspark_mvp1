@@ -87,12 +87,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 <template>
   <teleport to="body">
     <Transition name="modal">
-      <div v-if="open" class="fixed inset-0 z-[100]">
+      <div v-if="open" class="fixed inset-0 z-[100] overflow-y-auto">
         <button class="absolute inset-0 bg-black/70" @click="close" aria-label="Close preview" />
 
         <div
-          class="absolute inset-x-0 top-0 mx-auto w-full max-w-5xl p-3 sm:p-5"
-          :style="{ paddingTop: 'calc(12px + env(safe-area-inset-top))' }"
+          class="relative mx-auto w-full max-w-5xl p-3 sm:p-5 pb-6"
+          :style="{ paddingTop: 'calc(12px + env(safe-area-inset-top))', paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }"
         >
           <div class="card overflow-hidden" role="dialog" aria-modal="true" :aria-label="title">
             <div class="flex items-center justify-between gap-3 border-b border-white/10 bg-surface/70 px-4 py-3">
@@ -118,7 +118,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <div class="bg-surface-2">
               <div v-if="!canShow" class="p-6 text-sm text-text-2">No file to preview.</div>
 
-              <object v-else :data="url" type="application/pdf" class="w-full h-[72vh] sm:h-[80vh]">
+              <object v-else :data="url" type="application/pdf" class="w-full h-[60vh] sm:h-[72vh]">
                 <div class="p-4 text-sm text-text-2">
                   Your browser can’t preview this PDF.
                   <a class="underline text-accent font-semibold" :href="url" target="_blank" rel="noreferrer">Open</a>.
