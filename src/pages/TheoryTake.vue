@@ -77,10 +77,11 @@ async function load() {
 
   // Load most recent index (based on attempts)
   try {
-    const a = await dataStore.fetchTheoryAttempts(bankId.value)
-    // a is an array; we can decide last attempted question
-    // The store returns attempts (newest first). Find last question id.
-    const lastQ = Array.isArray(a) && a.length ? a[0]?.questionId : null
+    // fetchTheoryAttempts expects an object argument: { bankId, questionId?, limit? }
+    const out = await dataStore.fetchTheoryAttempts({ bankId: bankId.value })
+    const attempts = out?.attempts || []
+    // The store returns attempts (newest first). Find last attempted question id.
+    const lastQ = Array.isArray(attempts) && attempts.length ? attempts[0]?.questionId : null
     if (lastQ) {
       const i = questions.value.findIndex(q => String(q.id) === String(lastQ))
       if (i >= 0) idx.value = i
@@ -157,7 +158,8 @@ async function getAiHint() {
       questionId: q.id,
       mode: 'hint',
     })
-    aiHint.value = out?.hint || null
+    const r = out?.result || null
+    aiHint.value = r ? { ...r, keyPoints: Array.isArray(r.keywords) ? r.keywords : [] } : null
   } catch (e) {
     aiCoachErr.value = e?.message || 'AI hint failed.'
   } finally {
@@ -195,7 +197,8 @@ async function getAiFeedback() {
         ? latestAttempt.value.attemptId
         : '',
     })
-    aiFeedback.value = out?.feedback || null
+    const r = out?.result || null
+    aiFeedback.value = r ? { ...r, score: (r.aiScore === undefined ? null : r.aiScore) } : null
   } catch (e) {
     aiCoachErr.value = e?.message || 'AI feedback failed.'
   } finally {
@@ -326,7 +329,10 @@ watch(() => route.params.bankId, load)
               </div>
 
               <div v-if="aiHint" class="mt-3">
-                <div class="text-xs font-semibold opacity-80">Hint outline</div>
+                <div class="text-xs font-semibold opacity-80">Hint</div>
+                <div v-if="aiHint.hint" class="mt-2 whitespace-pre-line text-sm">{{ aiHint.hint }}</div>
+
+                <div class="mt-3 text-xs font-semibold opacity-80">Hint outline</div>
                 <ul v-if="aiHint.outline?.length" class="mt-2 list-disc pl-5 text-sm">
                   <li v-for="(p, i) in aiHint.outline" :key="'o'+i">{{ p }}</li>
                 </ul>
@@ -359,7 +365,9 @@ watch(() => route.params.bankId, load)
                   <div v-if="aiFeedback.score !== null && aiFeedback.score !== undefined" class="text-xs opacity-80">
                     AI score: <span class="font-semibold">{{ aiFeedback.score }}/5</span>
                   </div>
-                </div>
+	                </div>
+
+                <div v-if="aiFeedback.summary" class="mt-2 whitespace-pre-line text-sm">{{ aiFeedback.summary }}</div>
 
                 <div v-if="aiFeedback.strengths?.length" class="mt-2">
                   <div class="text-xs font-semibold opacity-80">What you did well</div>
