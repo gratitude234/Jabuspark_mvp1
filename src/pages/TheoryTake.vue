@@ -25,6 +25,8 @@ const error = ref('')
 const idx = ref(0)
 const answerText = ref('')
 const selfScore = ref(0)
+const aiGrade = ref(true)
+const lastAi = ref(null)
 const showGuide = ref(false)
 const saving = ref(false)
 
@@ -113,13 +115,16 @@ async function saveAttempt() {
 
   saving.value = true
   try {
-    await data.submitTheoryAttempt({
+    const res = await data.submitTheoryAttempt({
       bankId: props.bankId,
       questionId: String(current.value.id),
       answerText: txt,
-      selfScore: Number(selfScore.value || 0),
+      selfScore: aiGrade.value ? null : Number(selfScore.value || 0),
       secondsSpent,
+      aiGrade: Boolean(aiGrade.value),
     })
+
+    lastAi.value = res?.result?.ai || null
 
     // Refresh attempts so we get server timestamps
     await data.fetchTheoryAttempts({ bankId: props.bankId })
@@ -138,6 +143,7 @@ async function resetBank() {
     await data.resetTheoryBank(props.bankId)
     answerText.value = ''
     selfScore.value = 0
+    lastAi.value = null
     showGuide.value = false
     toast('Reset complete.', 'ok')
   } catch (e) {
@@ -206,14 +212,14 @@ async function resetBank() {
           v-model="answerText"
           rows="8"
           class="input w-full"
-          placeholder="Write your theory answer here…"
+          placeholder="Write your theory answer here..."
         />
       </div>
 
       <div class="mt-3 grid gap-2 sm:flex sm:items-end sm:justify-between">
         <div class="w-full sm:w-[220px]">
-          <label class="label" for="score">Self score (0–5)</label>
-          <select id="score" v-model="selfScore" class="input h-11">
+          <label class="label" for="score">Self score (0 to 5)</label>
+          <select id="score" v-model="selfScore" class="input h-11" :disabled="aiGrade">
             <option :value="0">0</option>
             <option :value="1">1</option>
             <option :value="2">2</option>
@@ -223,13 +229,21 @@ async function resetBank() {
           </select>
         </div>
 
+        <div class="w-full sm:w-[260px]">
+          <label class="label flex items-center gap-2" for="aiGrade">
+            <input id="aiGrade" type="checkbox" v-model="aiGrade" />
+            <span>Grade with AI</span>
+          </label>
+          <div class="text-xs text-text-3">If enabled, we will generate an AI score and feedback.</div>
+        </div>
+
         <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <button class="btn btn-ghost btn-sm h-11 w-full sm:w-auto" @click="showGuide = !showGuide">
             {{ showGuide ? 'Hide guide' : 'Reveal guide' }}
           </button>
 
           <button class="btn btn-primary btn-sm h-11 w-full sm:w-auto" :disabled="saving" @click="saveAttempt">
-            {{ saving ? 'Saving…' : 'Save attempt' }}
+            {{ saving ? 'Saving...' : 'Save attempt' }}
           </button>
         </div>
       </div>
@@ -247,13 +261,27 @@ async function resetBank() {
         </div>
       </div>
 
+
+      <div v-if="(currentLatest && currentLatest.aiScore !== null) || (lastAi && lastAi.score !== undefined)" class="mt-4 card card-pad">
+        <div class="text-sm font-semibold">AI grade</div>
+        <div class="mt-2 text-sm">
+          <span class="font-semibold">Score:</span>
+          {{ (lastAi && typeof lastAi.score === 'number') ? lastAi.score : currentLatest.aiScore }}/5
+        </div>
+        <div v-if="(lastAi && lastAi.feedback) || (currentLatest && currentLatest.aiFeedback)" class="mt-2 whitespace-pre-line text-sm">
+          {{ (lastAi && lastAi.feedback) ? lastAi.feedback : currentLatest.aiFeedback }}
+        </div>
+        <div v-if="lastAi && lastAi.error" class="mt-2 text-sm text-red-600">{{ lastAi.error }}</div>
+      </div>
+
+
       <div v-if="attemptsForCurrent.length" class="mt-4">
         <div class="text-xs font-semibold text-text-2">Your recent attempts</div>
         <div class="mt-2 grid gap-2">
           <div v-for="a in attemptsForCurrent.slice(0, 3)" :key="a.attemptId" class="card card-pad">
             <div class="flex items-center justify-between text-xs text-text-3">
               <span>{{ fmt(a.createdAt) }}</span>
-              <span v-if="a.selfScore !== null">Score {{ a.selfScore }}/5</span>
+              <span v-if="a.aiScore !== null || a.selfScore !== null">Score {{ (a.aiScore !== null ? a.aiScore : a.selfScore) }}/5</span>
             </div>
             <div class="mt-2 whitespace-pre-line text-sm">{{ a.answerText }}</div>
           </div>
