@@ -52,6 +52,55 @@ const seed = () => ({
   duel: { duel: null, participants: [], questions: [], result: null },
 })
 
+// ----------------------------
+// Helpers
+// ----------------------------
+// Be defensive: different backend deployments may return slightly different shapes.
+// The UI relies on missionKey/title/description/progress/target/rewardXp/rewardFreezes
+// plus booleans isComplete/isClaimed to enable the Claim button.
+const normalizeMission = (m = {}) => {
+  const missionKey = m.missionKey ?? m.mission_key ?? m.key ?? ''
+  const title = m.title ?? m.name ?? ''
+  const description = m.description ?? ''
+  const progress = Number(m.progress ?? m.current ?? 0)
+  const target = Number(m.target ?? m.goal ?? 0)
+  const rewardXp = Number(m.rewardXp ?? m.reward_xp ?? m.xp ?? 0)
+  const rewardFreezes = Number(
+    m.rewardFreezes ?? m.reward_freezes ?? m.streakFreezes ?? m.streak_freezes ?? 0
+  )
+  const claimedAt = m.claimedAt ?? m.claimed_at ?? null
+
+  const isClaimed = Boolean(m.isClaimed ?? m.is_claimed ?? claimedAt)
+  const isComplete = Boolean(
+    m.isComplete ?? m.is_complete ?? (target > 0 ? progress >= target : false)
+  )
+
+  return {
+    ...m,
+    missionKey,
+    title,
+    description,
+    progress,
+    target,
+    rewardXp,
+    rewardFreezes,
+    claimedAt,
+    isClaimed,
+    isComplete,
+  }
+}
+
+const normalizeMissionsPayload = ({ weekStart = '', missions = [], claimable = 0 } = {}) => {
+  const items = Array.isArray(missions) ? missions.map(normalizeMission) : []
+  // If backend doesn't provide claimable (or it's wrong), compute a sane fallback.
+  const fallbackClaimable = items.filter((m) => m.isComplete && !m.isClaimed).length
+  return {
+    weekStart: weekStart || '',
+    items,
+    claimable: Number(claimable || 0) || fallbackClaimable,
+  }
+}
+
 export const useDataStore = defineStore('data', {
   state: () => ({
     ...seed(),
@@ -99,13 +148,18 @@ export const useDataStore = defineStore('data', {
     // ----------------------------
     async fetchMissions() {
       const res = await apiFetch('/gamification/missions')
-      const weekStart = res?.data?.weekStart || ''
-      const items = res?.data?.missions || []
-      const claimable = Number(res?.data?.claimable || 0)
-      this.missions = { weekStart, items, claimable }
+      this.missions = normalizeMissionsPayload({
+        weekStart: res?.data?.weekStart,
+        missions: res?.data?.missions,
+        claimable: res?.data?.claimable,
+      })
 
       // mirror into progress for quick badge updates
-      this.progress = { ...this.progress, streakFreezes: Number(res?.data?.streakFreezes || this.progress.streakFreezes || 0), missionsClaimable: claimable }
+      this.progress = {
+        ...this.progress,
+        streakFreezes: Number(res?.data?.streakFreezes || this.progress.streakFreezes || 0),
+        missionsClaimable: Number(this.missions.claimable || 0),
+      }
       storage.set('progress', this.progress)
       return this.missions
     },
@@ -116,11 +170,12 @@ export const useDataStore = defineStore('data', {
         body: { missionKey }
       })
       const data = res?.data || {}
-      this.missions = {
+      // Some backends only return partial fields. Keep what we have, but normalize.
+      this.missions = normalizeMissionsPayload({
         weekStart: data.weekStart || this.missions.weekStart,
-        items: data.missions || this.missions.items,
-        claimable: Number(data.claimable || 0),
-      }
+        missions: data.missions || this.missions.items,
+        claimable: data.claimable,
+      })
 
       // apply server progress snapshot (xp/level/streakFreezes)
       if (data.progress) this.applyProgress(data.progress)

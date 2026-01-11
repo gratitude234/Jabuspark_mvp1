@@ -23,6 +23,18 @@ const items = computed(() => data.missions?.items || [])
 const claimable = computed(() => Number(data.missions?.claimable || 0))
 const streakFreezes = computed(() => Number(data.progress?.streakFreezes || 0))
 
+// Be defensive: some backend deployments don't send isComplete/isClaimed consistently.
+// We derive these fields from progress/target and claimedAt so the "Claim" button
+// remains clickable and we can surface useful feedback instead of feeling "dead".
+const missionKeyOf = (m) => m?.missionKey || m?.mission_key || m?.key || m?.id || ''
+const isClaimed = (m) => Boolean(m?.isClaimed ?? m?.is_claimed ?? m?.claimedAt ?? m?.claimed_at)
+const isComplete = (m) => {
+  if (Boolean(m?.isComplete ?? m?.is_complete)) return true
+  const t = Number(m?.target ?? m?.goal ?? 0)
+  const p = Number(m?.progress ?? m?.current ?? 0)
+  return t > 0 && p >= t
+}
+
 const pct = (m) => {
   const t = Number(m?.target || 0)
   const p = Number(m?.progress || 0)
@@ -31,10 +43,25 @@ const pct = (m) => {
 }
 
 async function claim(m) {
-  if (!m?.missionKey || claiming.value) return
-  claiming.value = m.missionKey
+  const key = missionKeyOf(m)
+  if (!key || claiming.value) {
+    if (!key) toast('This mission cannot be claimed (missing mission key).', 'err')
+    return
+  }
+
+  if (isClaimed(m)) {
+    toast('You already claimed this mission.', 'ok')
+    return
+  }
+
+  if (!isComplete(m)) {
+    toast('Finish this mission first, then claim your reward.', 'err')
+    return
+  }
+
+  claiming.value = key
   try {
-    await data.claimMission(m.missionKey)
+    await data.claimMission(key)
   } catch (e) {
     // Surface server errors (otherwise it feels like the button is "unclaimable")
     toast(e?.message || 'Failed to claim mission.', 'err')
@@ -81,12 +108,25 @@ onMounted(async () => {
     </AppCard>
 
     <div class="grid gap-3">
-      <AppCard v-for="m in items" :key="m.missionKey">
+      <AppCard v-for="m in items" :key="missionKeyOf(m) || m.title">
         <template #title>
           <div class="flex items-center justify-between gap-2">
             <span>{{ m.title }}</span>
-            <span v-if="m.isClaimed" class="chip">Claimed</span>
-            <span v-else-if="m.isComplete" class="chip">Complete</span>
+
+            <span
+              v-if="isClaimed(m)"
+              class="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-xs text-text"
+              title="Reward claimed"
+            >
+              Claimed
+            </span>
+            <span
+              v-else-if="isComplete(m)"
+              class="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-xs text-text-2"
+              title="Ready to claim"
+            >
+              Complete
+            </span>
           </div>
         </template>
 
@@ -111,10 +151,13 @@ onMounted(async () => {
           <div class="flex items-center justify-end">
             <button
               class="btn btn-primary btn-sm"
-              :disabled="!m.isComplete || m.isClaimed || claiming"
+              :disabled="Boolean(claiming) || isClaimed(m) || !isComplete(m)"
               @click="claim(m)"
+              :title="isClaimed(m) ? 'Already claimed' : (!isComplete(m) ? 'Complete the mission to claim' : 'Claim reward')"
             >
-              <span v-if="claiming === m.missionKey">Claiming…</span>
+              <span v-if="claiming === missionKeyOf(m)">Claiming…</span>
+              <span v-else-if="isClaimed(m)">Claimed</span>
+              <span v-else-if="!isComplete(m)">Not ready</span>
               <span v-else>Claim</span>
             </button>
           </div>
