@@ -1,307 +1,400 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import AppCard from '../components/AppCard.vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useContentStore } from '../stores/content'
 import { useDataStore } from '../stores/data'
-import { toast } from '../utils/toast'
+import { useAiStore } from '../stores/ai'
+import AppCard from '../components/AppCard.vue'
+import ProgressBar from '../components/ProgressBar.vue'
 
-const props = defineProps({
-  bankId: { type: String, required: true },
-})
-
+const route = useRoute()
 const router = useRouter()
 const content = useContentStore()
-const data = useDataStore()
+const dataStore = useDataStore()
+const ai = useAiStore()
 
-const bank = computed(() => content.bank || null)
-const isTheoryBank = computed(() => String(bank.value?.mode || '').toLowerCase() === 'theory')
-const questions = computed(() => bank.value?.questions || [])
-const total = computed(() => questions.value.length)
-
-const loading = ref(true)
-const error = ref('')
-
+const bankId = ref('')
 const idx = ref(0)
 const answerText = ref('')
-const selfScore = ref(0)
-const aiGrade = ref(true)
-const lastAi = ref(null)
+const selfScore = ref(null)
 const showGuide = ref(false)
 const saving = ref(false)
-
+const error = ref('')
 const startedAt = ref(Date.now())
 
-const attempts = computed(() => data.theoryAttempts?.[props.bankId] || [])
-const latestByQuestion = computed(() => data.theoryLatest?.[props.bankId] || {})
+// AI coach state
+const includeAiScore = ref(true)
+const aiHint = ref(null)
+const aiFeedback = ref(null)
+const aiCoachBusy = ref(false)
+const aiCoachErr = ref('')
 
+const bank = computed(() => content.bank)
+const questions = computed(() => bank.value?.questions || [])
+const total = computed(() => questions.value.length)
 const current = computed(() => questions.value[idx.value] || null)
-const currentLatest = computed(() => {
-  const qid = String(current.value?.id || '')
-  return qid ? latestByQuestion.value?.[qid] || null : null
+const progress = computed(() => (total.value ? Math.round(((idx.value + 1) / total.value) * 100) : 0))
+
+const guideText = computed(() => current.value?.guide || '')
+const points = computed(() => current.value?.points || [])
+
+// Latest saved attempt for this question (used to optionally attach AI feedback)
+const latestAttempt = computed(() => {
+  const b = String(bankId.value || '')
+  const q = String(current.value?.id || '')
+  if (!b || !q) return null
+  return dataStore.theoryLatest?.[b]?.[q] || null
 })
 
-const attemptedCount = computed(() => Object.keys(latestByQuestion.value || {}).length)
-const completionPct = computed(() => (total.value ? Math.round((attemptedCount.value / total.value) * 100) : 0))
+const canNext = computed(() => idx.value < total.value - 1)
+const canPrev = computed(() => idx.value > 0)
 
-const attemptsForCurrent = computed(() => {
-  const qid = String(current.value?.id || '')
-  if (!qid) return []
-  return attempts.value.filter((a) => String(a.questionId) === qid)
-})
+function resetStateForQuestion() {
+  answerText.value = ''
+  selfScore.value = null
+  showGuide.value = false
+  error.value = ''
+  startedAt.value = Date.now()
 
-function fmt(ts) {
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return String(ts || '')
-  }
+  // Reset AI for new question
+  aiHint.value = null
+  aiFeedback.value = null
+  aiCoachErr.value = ''
+  aiCoachBusy.value = false
 }
-
-watch(
-  () => [props.bankId, idx.value, currentLatest.value?.attemptId],
-  () => {
-    startedAt.value = Date.now()
-    showGuide.value = false
-    error.value = ''
-
-    // Prefill from latest saved attempt (optional)
-    answerText.value = currentLatest.value?.answerText || ''
-    selfScore.value = Number(currentLatest.value?.selfScore ?? 0)
-  },
-  { immediate: true }
-)
 
 async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    await Promise.allSettled([
-      content.fetchBank(props.bankId),
-      data.fetchTheoryAttempts({ bankId: props.bankId }),
-    ])
+  bankId.value = String(route.params.bankId || '')
+  if (!bankId.value) return router.push('/practice')
 
-    // If it's not a theory bank, we still show the page but with a clear message
-    if (!isTheoryBank.value) {
-      error.value = 'This bank is not a theory bank.'
+  await content.fetchBank(bankId.value)
+
+  // Guard: non-theory banks
+  const mode = String(content.bank?.mode || '').toLowerCase()
+  if (mode !== 'theory') {
+    return router.push(`/practice/${encodeURIComponent(bankId.value)}`)
+  }
+
+  // Load most recent index (based on attempts)
+  try {
+    const a = await dataStore.fetchTheoryAttempts(bankId.value)
+    // a is an array; we can decide last attempted question
+    // The store returns attempts (newest first). Find last question id.
+    const lastQ = Array.isArray(a) && a.length ? a[0]?.questionId : null
+    if (lastQ) {
+      const i = questions.value.findIndex(q => String(q.id) === String(lastQ))
+      if (i >= 0) idx.value = i
     }
   } catch (e) {
-    error.value = e?.message || 'Failed to load theory bank'
-  } finally {
-    loading.value = false
+    // ignore
   }
-}
 
-onMounted(load)
-
-function prev() {
-  if (idx.value > 0) idx.value -= 1
+  resetStateForQuestion()
 }
 
 function next() {
-  if (idx.value < total.value - 1) idx.value += 1
+  if (!canNext.value) return
+  idx.value++
+  resetStateForQuestion()
+}
+
+function prev() {
+  if (!canPrev.value) return
+  idx.value--
+  resetStateForQuestion()
 }
 
 async function saveAttempt() {
-  if (!current.value?.id) return
+  error.value = ''
 
-  const txt = String(answerText.value || '').trim()
-  if (!txt) {
-    toast('Write an answer first.', 'warn')
+  const q = current.value
+  if (!q) return
+
+  const a = (answerText.value || '').trim()
+  if (!a) {
+    error.value = 'Write your answer first.'
     return
   }
 
-  const secondsSpent = Math.max(0, Math.round((Date.now() - startedAt.value) / 1000))
-
   saving.value = true
   try {
-    const res = await data.submitTheoryAttempt({
-      bankId: props.bankId,
-      questionId: String(current.value.id),
-      answerText: txt,
-      selfScore: aiGrade.value ? null : Number(selfScore.value || 0),
+    const secondsSpent = Math.max(0, Math.round((Date.now() - startedAt.value) / 1000))
+    await dataStore.submitTheoryAttempt({
+      bankId: bankId.value,
+      questionId: q.id,
+      answerText: a,
+      selfScore: selfScore.value,
       secondsSpent,
-      aiGrade: Boolean(aiGrade.value),
     })
 
-    lastAi.value = res?.result?.ai || null
-
-    // Refresh attempts so we get server timestamps
-    await data.fetchTheoryAttempts({ bankId: props.bankId })
-
-    toast('Saved.', 'ok')
+    // Move on
+    if (canNext.value) {
+      idx.value++
+      resetStateForQuestion()
+    }
   } catch (e) {
-    toast(e?.message || 'Failed to save attempt', 'warn')
+    error.value = e?.message || 'Failed to save attempt.'
   } finally {
     saving.value = false
   }
 }
 
-async function resetBank() {
-  if (!confirm('Reset your theory attempts for this bank?')) return
+async function getAiHint() {
+  aiCoachErr.value = ''
+  aiHint.value = null
+  aiCoachBusy.value = true
+
+  const q = current.value
+  if (!q) {
+    aiCoachErr.value = 'No question loaded.'
+    aiCoachBusy.value = false
+    return
+  }
+
   try {
-    await data.resetTheoryBank(props.bankId)
-    answerText.value = ''
-    selfScore.value = 0
-    lastAi.value = null
-    showGuide.value = false
-    toast('Reset complete.', 'ok')
+    const out = await ai.theoryCoach({
+      bankId: bankId.value,
+      questionId: q.id,
+      mode: 'hint',
+    })
+    aiHint.value = out?.hint || null
   } catch (e) {
-    toast(e?.message || 'Failed to reset', 'warn')
+    aiCoachErr.value = e?.message || 'AI hint failed.'
+  } finally {
+    aiCoachBusy.value = false
   }
 }
+
+async function getAiFeedback() {
+  aiCoachErr.value = ''
+  aiFeedback.value = null
+  aiCoachBusy.value = true
+
+  const q = current.value
+  if (!q) {
+    aiCoachErr.value = 'No question loaded.'
+    aiCoachBusy.value = false
+    return
+  }
+
+  const a = (answerText.value || '').trim()
+  if (!a) {
+    aiCoachErr.value = 'Write your answer first, then request feedback.'
+    aiCoachBusy.value = false
+    return
+  }
+
+  try {
+    const out = await ai.theoryCoach({
+      bankId: bankId.value,
+      questionId: q.id,
+      mode: 'feedback',
+      answerText: a,
+      includeScore: includeAiScore.value,
+      attemptId: (latestAttempt.value && String((latestAttempt.value.answerText || '').trim()) === a)
+        ? latestAttempt.value.attemptId
+        : '',
+    })
+    aiFeedback.value = out?.feedback || null
+  } catch (e) {
+    aiCoachErr.value = e?.message || 'AI feedback failed.'
+  } finally {
+    aiCoachBusy.value = false
+  }
+}
+
+onMounted(load)
+watch(() => route.params.bankId, load)
 </script>
 
 <template>
-  <div class="page pb-28 space-y-3">
+  <div class="page">
     <AppCard>
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
+      <div class="flex items-center justify-between gap-3">
+        <div>
           <div class="h1">Theory Practice</div>
-          <p class="sub mt-1">
-            <span v-if="bank?.title">{{ bank.title }}</span>
-            <span v-else>Loading…</span>
-          </p>
+          <p class="sub mt-1">Write your answer, then self-mark with the guide. Optional AI coach can give hints + feedback.</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" @click="router.push('/practice')">Back</button>
+      </div>
 
-          <div class="mt-3 flex flex-wrap items-center gap-2">
-            <span class="chip">{{ attemptedCount }} / {{ total }} attempted</span>
-            <span class="chip">{{ completionPct }}% done</span>
-            <span class="chip">Streak: {{ data.progress?.streak ?? 0 }}</span>
+      <div class="divider my-4" />
+
+      <div v-if="!bank" class="sub">Loading…</div>
+
+      <div v-else>
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-sm font-semibold truncate">{{ bank.title }}</div>
+            <div class="text-xs text-text-3">Question {{ idx + 1 }} of {{ total }}</div>
+          </div>
+          <div class="w-40">
+            <ProgressBar :value="progress" />
           </div>
         </div>
 
-        <div class="flex flex-col gap-2">
-          <button class="btn btn-ghost btn-sm h-11" @click="router.push('/practice?tab=theory')">All Theory Banks</button>
-          <button class="btn btn-ghost btn-sm h-11" :disabled="saving" @click="resetBank">Reset</button>
-        </div>
-      </div>
+        <div class="mt-4 grid gap-4 lg:grid-cols-2">
+          <!-- Left: prompt + answer -->
+          <div>
+            <div class="card card-pad">
+              <div class="text-xs font-semibold opacity-80">Prompt</div>
+              <div class="mt-2 whitespace-pre-line text-sm">{{ current?.prompt }}</div>
 
-      <div v-if="error" class="alert alert-warn mt-4" role="alert">{{ error }}</div>
-      <div v-if="!loading && !isTheoryBank" class="help mt-2">
-        Tip: open this bank from <b>Practice → Theory</b>, or convert the bank mode to <code>theory</code>.
-      </div>
-    </AppCard>
+              <div class="divider my-4" />
 
-    <AppCard v-if="loading">
-      <div class="grid gap-2">
-        <div class="skeleton h-16" />
-        <div class="skeleton h-16" />
-      </div>
-    </AppCard>
+              <div class="text-xs font-semibold opacity-80">Your answer</div>
+              <textarea
+                v-model="answerText"
+                class="input mt-2 min-h-[220px] resize-y"
+                placeholder="Write your answer here…"
+              />
 
-    <AppCard v-else-if="!current">
-      <div class="h2">No questions</div>
-      <p class="sub mt-1">This theory bank has no questions yet.</p>
-    </AppCard>
-
-    <AppCard v-else>
-      <div class="flex items-center justify-between gap-2">
-        <div class="text-sm font-semibold">Question {{ idx + 1 }} / {{ total }}</div>
-        <div class="text-xs text-text-3" v-if="currentLatest">
-          Last saved: {{ fmt(currentLatest.createdAt) }}
-          <span v-if="currentLatest.selfScore !== null"> • Score {{ currentLatest.selfScore }}/5</span>
-        </div>
-      </div>
-
-      <div class="mt-3 text-base font-extrabold leading-snug whitespace-pre-line">{{ current.prompt }}</div>
-
-      <div class="mt-4">
-        <label class="label" for="answer">Your answer</label>
-        <textarea
-          id="answer"
-          v-model="answerText"
-          rows="8"
-          class="input w-full"
-          placeholder="Write your theory answer here..."
-        />
-      </div>
-
-      <div class="mt-3 grid gap-2 sm:flex sm:items-end sm:justify-between">
-        <div class="w-full sm:w-[220px]">
-          <label class="label" for="score">Self score (0 to 5)</label>
-          <select id="score" v-model="selfScore" class="input h-11" :disabled="aiGrade">
-            <option :value="0">0</option>
-            <option :value="1">1</option>
-            <option :value="2">2</option>
-            <option :value="3">3</option>
-            <option :value="4">4</option>
-            <option :value="5">5</option>
-          </select>
-        </div>
-
-        <div class="w-full sm:w-[260px]">
-          <label class="label flex items-center gap-2" for="aiGrade">
-            <input id="aiGrade" type="checkbox" v-model="aiGrade" />
-            <span>Grade with AI</span>
-          </label>
-          <div class="text-xs text-text-3">If enabled, we will generate an AI score and feedback.</div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          <button class="btn btn-ghost btn-sm h-11 w-full sm:w-auto" @click="showGuide = !showGuide">
-            {{ showGuide ? 'Hide guide' : 'Reveal guide' }}
-          </button>
-
-          <button class="btn btn-primary btn-sm h-11 w-full sm:w-auto" :disabled="saving" @click="saveAttempt">
-            {{ saving ? 'Saving...' : 'Save attempt' }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="showGuide" class="mt-4 card card-pad">
-        <div class="text-sm font-semibold">Model guide</div>
-        <div v-if="current.guide" class="mt-2 whitespace-pre-line text-sm">{{ current.guide }}</div>
-        <div v-else class="mt-2 text-sm text-text-3">No model guide provided for this question.</div>
-
-        <div v-if="Array.isArray(current.points) && current.points.length" class="mt-3">
-          <div class="text-xs font-semibold text-text-2">Key points</div>
-          <ul class="mt-2 list-disc pl-5 text-sm">
-            <li v-for="(p, i) in current.points" :key="i">{{ p }}</li>
-          </ul>
-        </div>
-      </div>
-
-
-      <div v-if="(currentLatest && currentLatest.aiScore !== null) || (lastAi && lastAi.score !== undefined)" class="mt-4 card card-pad">
-        <div class="text-sm font-semibold">AI grade</div>
-        <div class="mt-2 text-sm">
-          <span class="font-semibold">Score:</span>
-          {{ (lastAi && typeof lastAi.score === 'number') ? lastAi.score : currentLatest.aiScore }}/5
-        </div>
-        <div v-if="(lastAi && lastAi.feedback) || (currentLatest && currentLatest.aiFeedback)" class="mt-2 whitespace-pre-line text-sm">
-          {{ (lastAi && lastAi.feedback) ? lastAi.feedback : currentLatest.aiFeedback }}
-        </div>
-        <div v-if="lastAi && lastAi.error" class="mt-2 text-sm text-red-600">{{ lastAi.error }}</div>
-      </div>
-
-
-      <div v-if="attemptsForCurrent.length" class="mt-4">
-        <div class="text-xs font-semibold text-text-2">Your recent attempts</div>
-        <div class="mt-2 grid gap-2">
-          <div v-for="a in attemptsForCurrent.slice(0, 3)" :key="a.attemptId" class="card card-pad">
-            <div class="flex items-center justify-between text-xs text-text-3">
-              <span>{{ fmt(a.createdAt) }}</span>
-              <span v-if="a.aiScore !== null || a.selfScore !== null">Score {{ (a.aiScore !== null ? a.aiScore : a.selfScore) }}/5</span>
+              <div class="mt-3 flex items-center justify-between gap-2">
+                <button class="btn btn-ghost btn-sm" :disabled="!canPrev" @click="prev">Prev</button>
+                <button class="btn btn-ghost btn-sm" :disabled="!canNext" @click="next">Next</button>
+              </div>
             </div>
-            <div class="mt-2 whitespace-pre-line text-sm">{{ a.answerText }}</div>
+
+            <div v-if="showGuide" class="card card-pad mt-3">
+              <div class="text-xs font-semibold opacity-80">Marking guide</div>
+              <div v-if="guideText" class="mt-2 whitespace-pre-line text-sm">{{ guideText }}</div>
+              <div v-if="points && points.length" class="mt-3">
+                <div class="text-xs font-semibold opacity-80">Key points</div>
+                <ul class="mt-2 list-disc pl-5 text-sm">
+                  <li v-for="(p, i) in points" :key="i">{{ p }}</li>
+                </ul>
+              </div>
+              <div v-if="!guideText && (!points || !points.length)" class="mt-2 text-sm text-text-2">
+                No guide/points provided for this question yet.
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: self score + AI coach -->
+          <div>
+            <div class="card card-pad">
+              <div class="text-xs font-semibold opacity-80">Self score (0–5)</div>
+              <p class="sub mt-1">After you reveal the guide, score yourself honestly. This helps you track progress.</p>
+
+              <div class="mt-3">
+                <select v-model="selfScore" class="input">
+                  <option :value="null">Not scored</option>
+                  <option :value="0">0 — blank / totally wrong</option>
+                  <option :value="1">1 — very weak</option>
+                  <option :value="2">2 — some correct points</option>
+                  <option :value="3">3 — decent</option>
+                  <option :value="4">4 — very good</option>
+                  <option :value="5">5 — excellent</option>
+                </select>
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <button class="btn btn-ghost btn-sm" :disabled="aiCoachBusy" @click="getAiHint">
+                  <span v-if="!aiCoachBusy">AI hint</span>
+                  <span v-else>…</span>
+                </button>
+                <button class="btn btn-ghost btn-sm" :disabled="aiCoachBusy" @click="getAiFeedback">
+                  <span v-if="!aiCoachBusy">AI feedback</span>
+                  <span v-else>…</span>
+                </button>
+                <button class="btn btn-ghost btn-sm" @click="showGuide = !showGuide">
+                  {{ showGuide ? 'Hide guide' : 'Reveal guide' }}
+                </button>
+                <button class="btn btn-sm" :disabled="saving" @click="saveAttempt">
+                  <span v-if="!saving">Save attempt</span>
+                  <span v-else>Saving…</span>
+                </button>
+              </div>
+
+              <div class="mt-3 flex items-center justify-between gap-2">
+                <label class="flex items-center gap-2 text-xs opacity-80">
+                  <input type="checkbox" v-model="includeAiScore" />
+                  Include AI score (0–5)
+                </label>
+                <div v-if="ai.loading.theoryCoach" class="text-xs opacity-70">AI is thinking…</div>
+              </div>
+
+              <div v-if="error" class="alert alert-danger mt-4" role="alert">{{ error }}</div>
+
+              <div v-if="aiCoachErr" class="alert alert-danger mt-4" role="alert">{{ aiCoachErr }}</div>
+            </div>
+
+            <div v-if="aiHint || aiFeedback" class="card card-pad mt-3">
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-sm font-semibold">AI Coach</div>
+                <div class="text-xs opacity-70">Hints + feedback (may be imperfect)</div>
+              </div>
+
+              <div v-if="aiHint" class="mt-3">
+                <div class="text-xs font-semibold opacity-80">Hint outline</div>
+                <ul v-if="aiHint.outline?.length" class="mt-2 list-disc pl-5 text-sm">
+                  <li v-for="(p, i) in aiHint.outline" :key="'o'+i">{{ p }}</li>
+                </ul>
+
+                <div v-if="aiHint.keyPoints?.length" class="mt-3">
+                  <div class="text-xs font-semibold opacity-80">Key points to cover</div>
+                  <ul class="mt-2 list-disc pl-5 text-sm">
+                    <li v-for="(p, i) in aiHint.keyPoints" :key="'k'+i">{{ p }}</li>
+                  </ul>
+                </div>
+
+                <div v-if="aiHint.commonMistakes?.length" class="mt-3">
+                  <div class="text-xs font-semibold opacity-80">Common mistakes</div>
+                  <ul class="mt-2 list-disc pl-5 text-sm">
+                    <li v-for="(p, i) in aiHint.commonMistakes" :key="'m'+i">{{ p }}</li>
+                  </ul>
+                </div>
+
+                <div v-if="aiHint.firstSentence" class="mt-3">
+                  <div class="text-xs font-semibold opacity-80">Suggested first sentence</div>
+                  <div class="mt-1 text-sm whitespace-pre-line">{{ aiHint.firstSentence }}</div>
+                </div>
+              </div>
+
+              <div v-if="aiFeedback" class="mt-4">
+                <div class="divider my-3" />
+
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-xs font-semibold opacity-80">Feedback</div>
+                  <div v-if="aiFeedback.score !== null && aiFeedback.score !== undefined" class="text-xs opacity-80">
+                    AI score: <span class="font-semibold">{{ aiFeedback.score }}/5</span>
+                  </div>
+                </div>
+
+                <div v-if="aiFeedback.strengths?.length" class="mt-2">
+                  <div class="text-xs font-semibold opacity-80">What you did well</div>
+                  <ul class="mt-2 list-disc pl-5 text-sm">
+                    <li v-for="(p, i) in aiFeedback.strengths" :key="'s'+i">{{ p }}</li>
+                  </ul>
+                </div>
+
+                <div v-if="aiFeedback.missingPoints?.length" class="mt-3">
+                  <div class="text-xs font-semibold opacity-80">Missing / weak points</div>
+                  <ul class="mt-2 list-disc pl-5 text-sm">
+                    <li v-for="(p, i) in aiFeedback.missingPoints" :key="'mp'+i">{{ p }}</li>
+                  </ul>
+                </div>
+
+                <div v-if="aiFeedback.improvements?.length" class="mt-3">
+                  <div class="text-xs font-semibold opacity-80">How to improve</div>
+                  <ul class="mt-2 list-disc pl-5 text-sm">
+                    <li v-for="(p, i) in aiFeedback.improvements" :key="'im'+i">{{ p }}</li>
+                  </ul>
+                </div>
+
+                <div v-if="aiFeedback.rewriteSuggestion" class="mt-3">
+                  <div class="text-xs font-semibold opacity-80">Suggested rewrite (structure)</div>
+                  <div class="mt-1 whitespace-pre-line text-sm">{{ aiFeedback.rewriteSuggestion }}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 sub">
+                Note: AI feedback is a guide, not the final authority. Always cross-check with your lecturer’s notes and marking scheme.
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-
-      <div class="mt-5 flex items-center justify-between gap-2">
-        <button class="btn btn-ghost btn-sm h-11" :disabled="idx === 0" @click="prev">Prev</button>
-        <button class="btn btn-ghost btn-sm h-11" :disabled="idx >= total - 1" @click="next">Next</button>
       </div>
     </AppCard>
   </div>
 </template>
-
-<style scoped>
-.chip {
-  padding: 0.35rem 0.65rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  line-height: 1rem;
-  background: rgba(0, 0, 0, 0.06);
-}
-</style>

@@ -322,10 +322,10 @@ export const useDataStore = defineStore('data', {
       return { attempts, latestByQuestion, bankStats }
     },
 
-    async submitTheoryAttempt({ bankId, questionId, answerText, selfScore = null, secondsSpent = 0, aiGrade = false } = {}) {
+    async submitTheoryAttempt({ bankId, questionId, answerText, selfScore = null, secondsSpent = 0 } = {}) {
       const res = await apiFetch('/theory/submit', {
         method: 'POST',
-        body: { bankId, questionId, answerText, selfScore, secondsSpent, aiGrade },
+        body: { bankId, questionId, answerText, selfScore, secondsSpent },
       })
 
       const p = res?.data?.progress
@@ -343,9 +343,6 @@ export const useDataStore = defineStore('data', {
         questionId: String(questionId || ''),
         answerText: String(answerText || ''),
         selfScore: selfScore === null || selfScore === '' ? null : Number(selfScore),
-        aiScore: typeof res?.data?.result?.ai?.score === 'number' ? Number(res.data.result.ai.score) : null,
-        aiFeedback: typeof res?.data?.result?.ai?.feedback === 'string' ? res.data.result.ai.feedback : null,
-        aiModel: typeof res?.data?.result?.ai?.model === 'string' ? res.data.result.ai.model : null,
         secondsSpent: Number(secondsSpent || 0),
         createdAt: new Date().toISOString(),
       }

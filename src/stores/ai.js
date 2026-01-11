@@ -6,6 +6,8 @@ export const useAiStore = defineStore('ai', {
     loading: {
       explain: false,
       generateBank: false,
+      theoryCoach: false,
+      docChat: false,
     },
     error: null,
     cache: {
@@ -52,12 +54,55 @@ export const useAiStore = defineStore('ai', {
       }
     },
 
+    async theoryCoach({ bankId, questionId, mode = 'hint', answerText = '', includeScore = true, attemptId = '' } = {}) {
+      if (!bankId || !questionId) throw new Error('Missing theory question reference')
+      const m = String(mode || 'hint').toLowerCase()
+      if (!['hint', 'feedback'].includes(m)) throw new Error('Invalid AI coach mode')
+
+      if (m === 'feedback') {
+        const a = (answerText || '').trim()
+        if (!a) throw new Error('Write an answer first to get feedback')
+      }
+
+      this.loading.theoryCoach = true
+      this.error = null
+      try {
+        const res = await apiFetch('/ai/theory-coach', {
+          method: 'POST',
+          body: {
+            bankId,
+            questionId,
+            mode: m,
+            answerText: (answerText || '').trim(),
+            includeScore: !!includeScore,
+            attemptId: attemptId || '',
+          },
+        })
+        return res?.data || null
+      } catch (e) {
+        this.error = e?.message || 'AI request failed'
+        throw e
+      } finally {
+        this.loading.theoryCoach = false
+      }
+    },
+
     async docChat({ docType, docId, question }) {
       if (!docType || !docId) throw new Error('Missing document reference')
       const q = (question || '').trim()
       if (!q) throw new Error('Type a question first')
-      const res = await apiFetch('/ai/doc-chat', { method: 'POST', body: { docType, docId, question: q } })
-      return res?.data
+
+      this.loading.docChat = true
+      this.error = null
+      try {
+        const res = await apiFetch('/ai/doc-chat', { method: 'POST', body: { docType, docId, question: q } })
+        return res?.data
+      } catch (e) {
+        this.error = e?.message || 'AI request failed'
+        throw e
+      } finally {
+        this.loading.docChat = false
+      }
     }
 
   }
