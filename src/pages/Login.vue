@@ -97,11 +97,7 @@ async function submit() {
     const rawNext = route.query?.next
     const nextPath = typeof rawNext === 'string' && rawNext.startsWith('/') ? rawNext : ''
 
-    if (auth.needsOnboarding) {
-      router.push(nextPath ? { path: '/onboarding', query: { next: nextPath } } : '/onboarding')
-    } else {
-      router.push(nextPath || '/dashboard')
-    }
+    router.push(nextPath || '/practice')
   } catch (err) {
     errors.form = err?.message || 'Authentication failed. Please try again.'
   } finally {

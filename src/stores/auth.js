@@ -20,16 +20,10 @@ export const useAuthStore = defineStore('auth', {
       const v = u.uploadsDisabled ?? u.uploads_disabled ?? p.uploadsDisabled ?? p.uploads_disabled
       return !!v
     },
-    // Onboarding is considered complete once the user has:
-    // 1) a level, and
-    // 2) at least one selected course (GNS users don't need a department)
-    needsOnboarding: (s) => {
-      if (!s.user) return false
-      const p = s.user.profile || {}
-      const level = Number(p.level || 0)
-      const courseIds = Array.isArray(p.courseIds) ? p.courseIds : []
-      return level <= 0 || courseIds.length === 0
-    }
+    // This project now runs in "global catalogue" mode.
+    // Users are not required to select department, level, or courses to access content.
+    // Onboarding pages can still exist, but they are optional and never block navigation.
+    needsOnboarding: () => false,
   },
   actions: {
     setUser(user) {

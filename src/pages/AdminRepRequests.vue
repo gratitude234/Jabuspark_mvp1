@@ -349,7 +349,7 @@ watch(statusFilter, async () => {
 // ---- lifecycle ----
 onMounted(async () => {
   if (role.value !== 'admin') {
-    router.replace('/dashboard')
+    router.replace('/practice')
     return
   }
 
@@ -371,7 +371,7 @@ onMounted(async () => {
             <span v-if="!loading">Refresh</span>
             <span v-else>Loading…</span>
           </button>
-          <RouterLink to="/dashboard" class="btn btn-ghost">Back</RouterLink>
+          <RouterLink to="/practice" class="btn btn-ghost">Back</RouterLink>
         </div>
       </div>
 
