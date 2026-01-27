@@ -128,9 +128,11 @@ async function saveAttempt() {
       secondsSpent,
     })
 
-    // Show guide + AI feedback immediately after submit
-    showGuide.value = true
-    await getAiFeedback()
+    // Move on
+    if (canNext.value) {
+      idx.value++
+      resetStateForQuestion()
+    }
   } catch (e) {
     error.value = e?.message || 'Failed to save attempt.'
   } finally {

@@ -158,7 +158,7 @@ async function save() {
 
     const rawNext = route.query?.next
     const nextPath = typeof rawNext === 'string' && rawNext.startsWith('/') ? rawNext : ''
-    router.push(nextPath || '/practice')
+    router.push(nextPath || '/dashboard')
   } catch (e) {
     error.value = e?.message || 'Failed to save. Please try again.'
   } finally {

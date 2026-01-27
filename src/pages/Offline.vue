@@ -48,14 +48,14 @@ onBeforeUnmount(() => {
             <button class="btn btn-ghost" @click="go('/saved')">Open Saved</button>
             <button class="btn btn-ghost" @click="go('/materials')">Browse Materials</button>
             <button class="btn btn-ghost" @click="go('/past-questions')">Past Questions</button>
-            <button class="btn btn-ghost" @click="go('/practice')">Dashboard</button>
+            <button class="btn btn-ghost" @click="go('/dashboard')">Dashboard</button>
           </div>
 
           <div class="divider" />
 
           <div class="flex flex-wrap gap-2">
             <button class="btn btn-outline btn-sm" @click="location.reload()">Retry</button>
-            <button class="btn btn-primary btn-sm" :disabled="!online" @click="go('/practice')">
+            <button class="btn btn-primary btn-sm" :disabled="!online" @click="go('/dashboard')">
               Continue online
             </button>
           </div>

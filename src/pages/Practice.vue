@@ -260,10 +260,6 @@ async function submit() {
     })
 
     reveal.value = true
-
-    // Auto AI explanation after submit
-    await getAiExplanation()
-
     return res
   } catch (e) {
     error.value = e?.message || 'Failed to submit answer.'

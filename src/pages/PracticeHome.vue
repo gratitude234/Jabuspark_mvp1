@@ -8,7 +8,6 @@ import { useContentStore } from '../stores/content'
 import { useDataStore } from '../stores/data'
 import { useAiStore } from '../stores/ai'
 import AppCard from '../components/AppCard.vue'
-import AppButton from '../components/AppButton.vue'
 import AppInput from '../components/AppInput.vue'
 import AppSelect from '../components/AppSelect.vue'
 import StatPill from '../components/StatPill.vue'
@@ -23,8 +22,6 @@ const content = useContentStore()
 const data = useDataStore()
 const ai = useAiStore()
 
-// NOTE: This app is now "global catalogue" first.
-// Users are not restricted to profile-selected courses, level, or department.
 const profile = computed(() => auth.user?.profile || {})
 const progress = computed(() => data.progress || {})
 
@@ -60,17 +57,19 @@ const aiDifficulty = ref('mixed')
 const aiCount = ref(8)
 const aiError = ref('')
 
+const duelBusy = ref({})
 
-// Everyone sees the same course list.
-const visibleCourses = computed(() => catalog.courses || [])
+const myCourses = computed(() =>
+  (catalog.courses || []).filter((c) => (profile.value.courseIds || []).includes(c.id))
+)
 const courseOptions = computed(() =>
-  visibleCourses.value.map((c) => ({ value: c.id, label: `${c.code} (${c.level})` }))
+  myCourses.value.map((c) => ({ value: c.id, label: `${c.code} (${c.level})` }))
 )
 
 // UX: remember last selected course instead of defaulting to the first one.
 const selectedCourseId = useRememberedCourseId('lastCourseId.practice', {
-  getAllowedIds: () => visibleCourses.value.map((c) => c.id),
-  defaultValue: null, // All courses
+  getAllowedIds: () => myCourses.value.map((c) => c.id),
+  defaultValue: null, // All my courses
 })
 
 watch(selectedCourseId, async (cid) => {
@@ -187,6 +186,18 @@ async function generateAiBank() {
   }
 }
 
+async function challengeFriend(bankId) {
+  if (!bankId) return
+  duelBusy.value = { ...duelBusy.value, [bankId]: true }
+  try {
+    const duel = await data.createDuel({ bankId })
+    if (duel?.code) router.push(`/duel/${duel.code}`)
+  } catch (e) {
+    // handled globally
+  } finally {
+    duelBusy.value = { ...duelBusy.value, [bankId]: false }
+  }
+}
 </script>
 
 <template>
@@ -198,25 +209,27 @@ async function generateAiBank() {
           <div class="h1">Practice</div>
           <p class="sub mt-1">
             <span v-if="!isTheoryTab">Quick drills to boost recall and exam confidence.</span>
-            <span v-else>Write answers and get instant AI feedback after you submit.</span>
+            <span v-else>Write answers, compare with a model guide, and self-score (0–5).</span>
           </p>
 
           <!-- Mode tabs -->
           <div class="mt-3 flex gap-2">
-            <AppButton
-              size="sm"
-              :variant="!isTheoryTab ? 'primary' : 'ghost'"
+            <button
+              type="button"
+              class="btn btn-sm h-10"
+              :class="!isTheoryTab ? 'btn-primary' : 'btn-ghost'"
               @click="tab = 'objective'"
             >
               Objective
-            </AppButton>
-            <AppButton
-              size="sm"
-              :variant="isTheoryTab ? 'primary' : 'ghost'"
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm h-10"
+              :class="isTheoryTab ? 'btn-primary' : 'btn-ghost'"
               @click="tab = 'theory'"
             >
               Theory
-            </AppButton>
+            </button>
           </div>
 
           <!-- Stats: comfortable on mobile -->
@@ -263,6 +276,9 @@ async function generateAiBank() {
             <!-- Goals: horizontal scroll on mobile so buttons don't wrap weirdly -->
             <div class="mt-3 -mx-3 px-3 overflow-x-auto">
               <div class="btn-row">
+                <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="data.setDailyGoal(10)">Goal 10</button>
+                <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="data.setDailyGoal(20)">Goal 20</button>
+                <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="data.setDailyGoal(50)">Goal 50</button>
               </div>
             </div>
           </div>
@@ -291,6 +307,18 @@ async function generateAiBank() {
           <!-- Quick links: scroll on mobile (prevents cramped multi-line buttons) -->
           <div class="mt-3 -mx-4 px-4 overflow-x-auto sm:mx-0 sm:px-0">
             <div class="btn-row">
+              <button
+                v-if="!isTheoryTab"
+                type="button"
+                class="btn btn-ghost btn-sm h-11 whitespace-nowrap"
+                @click="router.push('/practice/review')"
+              >
+                Smart Review
+                <span v-if="progress?.dueReviews" class="badge ml-2">{{ progress.dueReviews }}</span>
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/progress')">Progress</button>
+              <button v-if="!isTheoryTab" type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/exam')">Exam Mode</button>
+              <button type="button" class="btn btn-ghost btn-sm h-11 whitespace-nowrap" @click="router.push('/leaderboard')">Leaderboard</button>
             </div>
           </div>
         </div>
@@ -301,7 +329,7 @@ async function generateAiBank() {
             id="course"
             v-model="selectedCourseId"
             :options="courseOptions"
-            placeholder="All courses"
+            placeholder="All my courses"
           />
           <p class="help">Tip: choose a course to see focused banks.</p>
         </div>
@@ -348,6 +376,14 @@ async function generateAiBank() {
           </select>
         </div>
 
+        <button
+          class="btn btn-primary w-full sm:w-auto h-11"
+          :disabled="!selectedCourseId || ai.loading.generateBank"
+          @click="generateAiBank"
+        >
+          <span v-if="!ai.loading.generateBank">Generate bank</span>
+          <span v-else>Generating…</span>
+        </button>
       </div>
 
       <div v-if="aiError" class="alert alert-warn mt-3" role="alert">{{ aiError }}</div>
@@ -398,12 +434,21 @@ async function generateAiBank() {
           <!-- Actions: 2-column on mobile, inline on desktop -->
           <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <RouterLink
-              :to="String(b.mode || 'mcq').toLowerCase() === 'theory' ? `/practice/theory/${b.id}` : `/practice/${b.id}`"
+              :to="String(b.mode || 'mcq').toLowerCase() === 'theory' ? `/theory/${b.id}` : `/practice/${b.id}`"
               class="btn btn-primary btn-sm w-full sm:w-auto h-11 justify-center"
             >
               {{ String(b.mode || 'mcq').toLowerCase() === 'theory' ? 'Start theory' : 'Start practice' }}
             </RouterLink>
 
+            <button
+              v-if="String(b.mode || 'mcq').toLowerCase() !== 'theory'"
+              type="button"
+              class="btn btn-ghost btn-sm w-full sm:w-auto h-11 justify-center"
+              :disabled="!!duelBusy[b.id]"
+              @click="challengeFriend(b.id)"
+            >
+              {{ duelBusy[b.id] ? 'Creating…' : 'Challenge friend' }}
+            </button>
           </div>
         </div>
       </div>

@@ -6,28 +6,61 @@ import AppShell from '../layouts/AppShell.vue'
 
 import Login from '../pages/Login.vue'
 import ForgotPassword from '../pages/ForgotPassword.vue'
-import Offline from '../pages/Offline.vue'
-
-// Practice engine (core)
-import PracticeHome from '../pages/PracticeHome.vue'
-import Practice from '../pages/Practice.vue'
-import TheoryTake from '../pages/TheoryTake.vue'
-import Review from '../pages/Review.vue'
-
-// Optional downloads (kept)
+import OnboardingStart from '../pages/OnboardingStart.vue'
+import OnboardingDepartment from '../pages/Onboarding.vue'
+import OnboardingGns from '../pages/OnboardingGns.vue'
+import OnboardingNursing from '../pages/OnboardingNursing.vue'
+import OnboardingRequestDept from '../pages/OnboardingRequestDept.vue'
+import Dashboard from '../pages/Dashboard.vue'
 import PastQuestions from '../pages/PastQuestions.vue'
-
-// Supporting
-import Saved from '../pages/Saved.vue'
+import Materials from '../pages/Materials.vue'
+import Practice from '../pages/Practice.vue'
+import Review from '../pages/Review.vue'
 import Progress from '../pages/Progress.vue'
 import Profile from '../pages/Profile.vue'
+import Offline from '../pages/Offline.vue'
 
-// Admin / internal tools (kept; not part of student nav)
+// ✅ NEW killer features
+import Leaderboard from '../pages/Leaderboard.vue'
+import ExamHome from '../pages/ExamHome.vue'
+import ExamTake from '../pages/ExamTake.vue'
+import ExamResult from '../pages/ExamResult.vue'
+
+// ✅ NEW: Weekly Missions
+import Missions from '../pages/Missions.vue'
+
+// Admin + uploads
+import RepRequest from '../pages/RepRequest.vue'
 import Uploads from '../pages/Uploads.vue'
-import AdminAiTools from '../pages/AdminAiTools.vue'
 import AdminRepRequests from '../pages/AdminRepRequests.vue'
 import AdminCourseReps from '../pages/AdminCourseReps.vue'
+import AdminAiTools from '../pages/AdminAiTools.vue'
 import AdminUploadLogs from '../pages/AdminUploadLogs.vue'
+
+// ✅ Practice home (so /practice is a real page)
+import PracticeHome from '../pages/PracticeHome.vue'
+
+// ✅ NEW: Theory writing practice
+import TheoryTake from '../pages/TheoryTake.vue'
+
+// ✅ NEW
+import Saved from '../pages/Saved.vue'
+
+// ✅ NEW: Announcements
+import Notify from '../pages/Notify.vue'
+import AdminNotify from '../pages/AdminNotify.vue'
+
+// ✅ Study Groups
+import Groups from '../pages/Groups.vue'
+import GroupDetail from '../pages/GroupDetail.vue'
+import GroupChallengeNew from '../pages/GroupChallengeNew.vue'
+import ChallengeTake from '../pages/ChallengeTake.vue'
+import ChallengeResult from '../pages/ChallengeResult.vue'
+
+// ✅ 1v1 Duel (shareable challenge links)
+import DuelLobby from '../pages/DuelLobby.vue'
+import DuelTake from '../pages/DuelTake.vue'
+import DuelResult from '../pages/DuelResult.vue'
 
 const routes = [
   {
@@ -47,65 +80,103 @@ const routes = [
     path: '/',
     component: AppShell,
     children: [
-      { path: '', redirect: '/practice' },
+      { path: '', redirect: '/dashboard' },
 
-      // Core practice engine
+      { path: 'onboarding', component: OnboardingStart, meta: { title: 'Onboarding' } },
+      { path: 'onboarding/gns', component: OnboardingGns, meta: { title: 'GNS Exam Prep' } },
+      { path: 'onboarding/nursing-200', component: OnboardingNursing, meta: { title: 'Nursing 200L Setup' } },
+      { path: 'onboarding/request-department', component: OnboardingRequestDept, meta: { title: 'Request Department' } },
+      { path: 'onboarding/department', component: OnboardingDepartment, meta: { title: 'Department Setup' } },
+      { path: 'dashboard', component: Dashboard, meta: { title: 'Dashboard' } },
+      { path: 'past-questions', component: PastQuestions, meta: { title: 'Past Questions' } },
+      { path: 'materials', component: Materials, meta: { title: 'Materials' } },
+
+      // ✅ so nav "/practice" never 404s (until you create PracticeHome)
       { path: 'practice', component: PracticeHome, meta: { title: 'Practice' } },
-      { path: 'practice/review', component: Review, meta: { title: 'Review' } },
-      { path: 'practice/theory/:bankId', component: TheoryTake, props: true, meta: { title: 'Theory Practice' } },
+      { path: 'practice/review', component: Review, meta: { title: 'Smart Review' } },
       { path: 'practice/:bankId', component: Practice, props: true, meta: { title: 'Practice' } },
 
-      // Optional downloads
-      { path: 'past-questions', component: PastQuestions, meta: { title: 'Past Questions' } },
+      // Theory writing practice
+      { path: 'theory/:bankId', component: TheoryTake, props: true, meta: { title: 'Theory Practice' } },
 
-      // Supporting
+      // ✅ NEW
       { path: 'saved', component: Saved, meta: { title: 'Saved' } },
+
+      // ✅ NEW: Announcements
+      { path: 'notify', component: Notify, meta: { title: 'Announcements' } },
+
+      // ✅ Study Groups
+      { path: 'groups', component: Groups, meta: { title: 'Study Groups' } },
+      { path: 'groups/:groupId', component: GroupDetail, props: true, meta: { title: 'Group' } },
+      { path: 'groups/:groupId/new-challenge', component: GroupChallengeNew, props: true, meta: { title: 'New Challenge' } },
+      { path: 'challenge/:challengeId', component: ChallengeTake, props: true, meta: { title: 'Challenge' } },
+      { path: 'challenge/:challengeId/result', component: ChallengeResult, props: true, meta: { title: 'Challenge Result' } },
+
+      // ✅ 1v1 Duel
+      { path: 'duel/:code', component: DuelLobby, props: true, meta: { title: '1v1 Duel' } },
+      { path: 'duel/:code/take', component: DuelTake, props: true, meta: { title: 'Duel' } },
+      { path: 'duel/:code/result', component: DuelResult, props: true, meta: { title: 'Duel Result' } },
+
+      // ✅ NEW killer features
+      { path: 'leaderboard', component: Leaderboard, meta: { title: 'Leaderboard' } },
+      { path: 'missions', component: Missions, meta: { title: 'Weekly Missions' } },
+      { path: 'exam', component: ExamHome, meta: { title: 'Exam Mode' } },
+      { path: 'exam/:examId', component: ExamTake, props: true, meta: { title: 'Exam' } },
+      { path: 'exam/:examId/result', component: ExamResult, props: true, meta: { title: 'Exam Result' } },
+
       { path: 'progress', component: Progress, meta: { title: 'Progress' } },
       { path: 'profile', component: Profile, meta: { title: 'Profile' } },
 
-      // Uploads (admin / course_rep)
+      // Course rep onboarding + uploads
+      { path: 'rep/request', component: RepRequest, meta: { title: 'Course Rep Request' } },
       { path: 'uploads', component: Uploads, meta: { title: 'Uploads', roles: ['admin', 'course_rep'] } },
 
       // Admin
-      { path: 'admin/ai-tools', component: AdminAiTools, meta: { title: 'AI Tools', roles: ['admin'] } },
       { path: 'admin/rep-requests', component: AdminRepRequests, meta: { title: 'Rep Requests', roles: ['admin'] } },
-      { path: 'admin/course-reps', component: AdminCourseReps, meta: { title: 'Course Reps', roles: ['admin'] } },
-      { path: 'admin/upload-logs', component: AdminUploadLogs, meta: { title: 'Upload Logs', roles: ['admin'] } },
+      { path: 'admin/course-reps', component: AdminCourseReps, meta: { title: 'Manage Course Reps', roles: ['admin'] } },
+      { path: 'admin/ai-tools', component: AdminAiTools, meta: { title: 'AI Tools', roles: ['admin'] } },
+      { path: 'admin/upload-logs', component: AdminUploadLogs, meta: { title: 'Upload Audit Log', roles: ['admin'] } },
+      { path: 'admin/notify', component: AdminNotify, meta: { title: 'Post Announcement', roles: ['admin'] } },
     ],
   },
-  { path: '/:pathMatch(.*)*', redirect: '/practice' },
+  { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
 ]
 
 const router = createRouter({
   history: createWebHistory(),
   routes,
   scrollBehavior(to) {
-    if (to.hash) return { el: to.hash, behavior: 'smooth' }
+    // allow hash navigation (e.g. /profile#study-settings)
+    if (to.hash) {
+      return { el: to.hash, behavior: 'smooth' }
+    }
     return { top: 0 }
   },
 })
 
-router.beforeEach(async (to) => {
+router.beforeEach((to) => {
   const auth = useAuthStore()
   const isPublic = to.path.startsWith('/auth') || to.path === '/offline'
 
-  // Ensure store is hydrated before guarding routes
-  if (!auth.bootstrapped) {
-    try { await auth.hydrate() } catch (e) { /* ignore */ }
-  }
-
-  // Auth gate
+  // 1) Auth gate
   if (!isPublic && !auth.isAuthed) {
     return { path: '/auth/login', query: { next: to.fullPath } }
   }
 
-  // Role-based guard (admin / course_rep pages)
+  // 2) Onboarding gate
+  // Always allow onboarding routes if user is authed.
+  if (auth.isAuthed && auth.needsOnboarding && !to.path.startsWith('/onboarding')) {
+    return { path: '/onboarding', query: { next: to.fullPath } }
+  }
+
+  // 3) Role-based guard (admin / course_rep pages)
   const roles = to.meta?.roles
   if (roles && Array.isArray(roles) && roles.length) {
     const r = auth.role
     if (!roles.includes(r)) {
+      // If user tried uploads but isn't a rep yet, push them to Profile flow.
       if (to.path.startsWith('/uploads')) return { path: '/profile', hash: '#uploads-reps' }
-      return { path: '/practice' }
+      return '/dashboard'
     }
   }
 

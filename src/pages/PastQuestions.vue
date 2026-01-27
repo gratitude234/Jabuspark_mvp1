@@ -28,13 +28,14 @@ const isSmUp = ref(false)
 let mq
 let mqHandler
 
-// Everyone sees the same course list. No level or department gating.
-const myCourses = computed(() => (catalog.courses || []))
+const myCourses = computed(() =>
+  (catalog.courses || []).filter(c => (auth.user?.profile?.courseIds || []).includes(c.id))
+)
 
 // UX: remember last selected course instead of defaulting to the first one.
 const selectedCourseId = useRememberedCourseId('lastCourseId.pastQuestions', {
   getAllowedIds: () => myCourses.value.map(c => c.id),
-  defaultValue: null, // All courses
+  defaultValue: null, // All my courses
 })
 
 const courseOptions = computed(() =>
@@ -231,7 +232,7 @@ function openPreview(pq) {
               id="pqcourse"
               v-model="selectedCourseId"
               :options="courseOptions"
-              placeholder="All courses"
+              placeholder="All my courses"
             />
           </div>
 
